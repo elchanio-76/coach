@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import api
 from . import browser
+from . import parser as workout_parser
 from .config import DEFAULT_BASE_URL, TrueCoachPaths
 
 
@@ -37,6 +38,27 @@ def main() -> None:
     workouts_parser.add_argument("--start-page", type=int, default=1, help="First page to fetch")
     workouts_parser.add_argument("--per-page", type=int, default=30, help="Workouts per page")
     workouts_parser.add_argument("--states", default="completed,missed", help="Comma-separated workout states")
+
+    parse_parser = subparsers.add_parser("parse-workouts", help="Parse raw workout API pages into JSONL records")
+    parse_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing API input and parsed output",
+    )
+    parse_parser.add_argument(
+        "--input",
+        type=Path,
+        action="append",
+        default=None,
+        help="Raw workout API JSON file. May be passed more than once. Defaults to all cached workout pages.",
+    )
+    parse_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for parsed JSONL output. Defaults to data/cache/truecoach/parsed.",
+    )
 
     args = parser.parse_args()
     paths = TrueCoachPaths(cache_dir=args.cache_dir)
@@ -87,6 +109,14 @@ def main() -> None:
             )
             for path in outputs:
                 print(f"workouts: {path}")
+        elif args.command == "parse-workouts":
+            outputs = workout_parser.parse_cached_workouts(
+                paths=paths,
+                input_files=args.input,
+                output_dir=args.output_dir,
+            )
+            for name, path in outputs.items():
+                print(f"{name}: {path}")
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

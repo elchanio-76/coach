@@ -28,6 +28,8 @@ Run the first milestone commands:
 .venv/bin/coach inspect
 .venv/bin/coach capture --url 'https://app.truecoach.co/client/workouts?_=true&_page=3'
 .venv/bin/coach fetch-workouts --pages 1
+.venv/bin/coach parse-workouts
 ```
 
 Generated browser state and inspection artifacts are written to `data/cache/truecoach/`.
+Parsed JSONL records are written to `data/cache/truecoach/parsed/`.

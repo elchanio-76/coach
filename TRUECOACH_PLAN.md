@@ -91,4 +91,29 @@ data/cache/truecoach/api/workouts-client-{client_id}-page-{page}.json
 1. Build a parser from raw workout pages into normalized Python records.
 2. Design the database schema from the observed API shape.
 3. Store raw source payloads alongside parsed records for audit/reprocessing.
-4. Add rate limiting, resumability, and incremental sync.
+4. Add an AI-assisted categorization agent after the parser/database foundation is stable.
+5. Add rate limiting, resumability, and incremental sync.
+
+## Parser Plan
+
+The parser should preserve source text and avoid premature exercise normalization. Workout names, workout instructions, and logged results are free-form text, and TrueCoach `exercise_id` is sparse.
+
+Initial parsed entities:
+
+- `WorkoutRecord`: one row per workout with source ID, due date, state, rest day flag, title, program name, warmup/cooldown text, source timestamps, and raw source payload reference.
+- `WorkoutItemRecord`: one row per ordered workout item with source item ID, workout source ID, position, name, prescribed `info`, logged `result`, item state, circuit flag, TrueCoach exercise ID when present, selected exercises, and raw attachments.
+- `AttachmentRecord`: one row per workout item attachment with source item ID, name, URL, MIME type, and size.
+
+Parser responsibilities:
+
+1. Read one or more raw API page JSON files.
+2. Validate required keys: `meta`, `workouts`, `workout_items`.
+3. Build workout records keyed by `workout.id`.
+4. Attach item records to workouts using `workout_item_ids` and `workout_id`.
+5. Preserve all free-form strings exactly, plus trimmed display variants where useful.
+6. Emit deterministic JSONL/CSV summaries for inspection before database import.
+7. Report anomalies, such as missing item IDs, duplicate IDs, orphan items, unknown states, and malformed attachment data.
+
+Later AI categorization:
+
+After raw parsing and storage, create an AI agent that reviews uncategorized workout items. The agent should map each item to an existing exercise and category where appropriate, or propose/create a new exercise/category entry when no match exists. Initial categories and seed exercises will be user-defined before enabling this workflow.

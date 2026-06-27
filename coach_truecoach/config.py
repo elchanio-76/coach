@@ -36,9 +36,14 @@ class TrueCoachPaths:
     def api_dir(self) -> Path:
         return self.cache_dir / "api"
 
+    @property
+    def parsed_dir(self) -> Path:
+        return self.cache_dir / "parsed"
+
     def ensure(self) -> None:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir.mkdir(parents=True, exist_ok=True)
         self.inspect_dir.mkdir(parents=True, exist_ok=True)
         self.network_dir.mkdir(parents=True, exist_ok=True)
         self.api_dir.mkdir(parents=True, exist_ok=True)
+        self.parsed_dir.mkdir(parents=True, exist_ok=True)
