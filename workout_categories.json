@@ -1,0 +1,40 @@
+{
+    "workout_categories": [
+        {
+            "id":1,
+            "name":"Strength",
+            "description":"Resistance training focused on building muscle strength and size",
+            "color_code":"#FF6B6B"
+        },
+        {
+            "id":2,
+            "name":"Cardio",
+            "description":"Cardiovascular training focused on improving heart health and endurance",
+            "color_code":"#4ECDC4"
+        },
+        {
+            "id":3,
+            "name":"Mobility",
+            "description":"Movement flexibility and joint range of motion exercises",
+            "color_code":"#F7FFA7"
+        },
+        {
+            "id":4,
+            "name":"Accessory",
+            "description":"Supplementary exercises for supporting strength and injury prevention",
+            "color_code":"#FFCE5D"
+        },
+        {
+            "id":5,
+            "name":"Crossfit WOD",
+            "description":"High-intensity functional training workouts combining strength and cardio elements",
+            "color_code":"#2E86AB"
+        },
+        {
+            "id":6,
+            "name":"Gymnastics",
+            "description":"Skill work or endurance training for bodyweight gymnastics/strength movements",
+            "color_code":"#9B59B6"
+        }
+    ]
+}
