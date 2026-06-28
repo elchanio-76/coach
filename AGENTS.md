@@ -18,9 +18,9 @@ Persistence layer: Postgres + local file cache where simpler
 
 ## Current Status
 
-Current branch: `truecoach-login`.
+Current branch: `database-schema`.
 
-The project has a working TrueCoach navigation and extraction scaffold:
+The project has a working TrueCoach navigation, extraction, and database bootstrap scaffold:
 
 - Playwright browser automation logs in to `https://app.truecoach.co`.
 - Credentials are read from `.env` via `python-dotenv`.
@@ -47,6 +47,10 @@ Implemented CLI commands:
 .venv/bin/coach capture --url 'https://app.truecoach.co/client/workouts?_=true&_page=3'
 .venv/bin/coach fetch-workouts --pages 1
 .venv/bin/coach parse-workouts
+.venv/bin/coach db-upgrade
+.venv/bin/coach db-seed-categories
+.venv/bin/coach db-import-parsed
+.venv/bin/coach db-bootstrap
 ```
 
 Local artifacts:
@@ -77,17 +81,34 @@ Parser status:
 Planning documents:
 
 - `TRUECOACH_PLAN.md`: scraping/auth/API/parser plan and TrueCoach endpoint findings.
-- `DB design plan.md`: user-authored schema notes.
-- `DB schema plan.md`: implementation-oriented schema plan.
+- `DB schema plan.md`: authoritative schema and import workflow document.
+- `DB design plan.md`: historical user-authored schema notes.
 
-Database direction:
+Database status:
 
 - Persistence target is Postgres.
-- Migrations will be managed with Alembic.
-- Runtime database access and queries will be implemented with SQLAlchemy.
-- Core source tables: `workouts`, `workout_items`, `workout_item_attachments`.
+- Alembic is configured and the initial migration exists.
+- Runtime database access and imports are implemented with SQLAlchemy.
+- Core source tables exist: `workouts`, `workout_items`, `workout_item_attachments`.
 - Canonical `exercises` represent atomic movements only.
 - Taxonomy applies to `workout_items`, not canonical exercises.
-- `workout_item_exercises`, `workout_item_categories`, and `workout_item_metrics` are versioned assertion/proposal tables.
+- Versioned enrichment tables exist: `workout_item_exercises`, `workout_item_categories`, and `workout_item_metrics`.
 - Rejected and superseded AI assertions must remain stored for audit, few-shot examples, and future training data.
+- Category seed import from `workout_categories.json` is implemented.
+- Parsed raw import from `data/cache/truecoach/parsed/` is implemented.
+- `DBURL` is read from `.env`; Postgres URLs are normalized to `postgresql+psycopg` at runtime when needed.
 
+Latest verified local bootstrap run:
+
+- Seeded workout categories: `6`
+- Imported workouts: `30`
+- Imported workout items: `95`
+- Imported attachments: `6`
+- Imported canonical exercises: `29`
+- Imported TrueCoach exercise mappings: `36`
+
+Known implementation details:
+
+- The importer currently reads parsed seed files from `data/cache/truecoach/parsed/`.
+- AI enrichment tables exist, but no AI write/review workflow is implemented yet.
+- The canonical exercise import currently collapses duplicate TrueCoach exercise IDs by canonical name when names coincide.

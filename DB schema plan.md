@@ -2,6 +2,29 @@
 
 This plan converts the TrueCoach API data into durable source tables, then layers human/AI enrichment on top as versioned assertions.
 
+## Current Implementation Status
+
+Implemented:
+
+- SQLAlchemy models for source tables, canonical tables, and versioned enrichment tables.
+- Alembic setup and initial schema migration.
+- Parsed raw import from `data/cache/truecoach/parsed/`.
+- Category seed import from `workout_categories.json`.
+- TrueCoach exercise mapping import into `exercises` and `workout_item_exercises`.
+- `workout_items.exercise_id` convenience FK alongside the authoritative many-to-many table.
+
+Not implemented yet:
+
+- AI exercise/category/metric proposal workflows.
+- Review/approval UI or workflow for enrichment assertions.
+- Source deletion detection during sync.
+
+Current implementation choices:
+
+- Status/source vocabularies use text columns plus check constraints, not PostgreSQL enums.
+- Parsed input source path is `data/cache/truecoach/parsed/`.
+- Duplicate TrueCoach exercise IDs that resolve to the same canonical name are merged during import by name.
+
 ## Design Principles
 
 1. Keep TrueCoach source fields with a `tc_` prefix.
@@ -47,7 +70,7 @@ Columns:
 Constraints and indexes:
 
 - unique `tc_workout_id`
-- unique `tc_uuid` where not null
+- unique `tc_uuid`
 - index `due_date`
 - index `state`
 
@@ -143,7 +166,7 @@ Columns:
 Constraints and indexes:
 
 - unique lower-normalized `name` eventually, after deciding normalization rules
-- unique `tc_exercise_id` where not null
+- unique `tc_exercise_id`
 - index `review_status`
 
 ### workout_categories
@@ -262,6 +285,13 @@ Constraints and indexes:
 
 ## Import Operations
 
+Current implementation status:
+
+- `Raw Workout Import`: implemented
+- `Seed Category Import`: implemented
+- `Seed Exercise Import`: partially implemented through TrueCoach-derived exercise upserts and `workout_item_exercises` creation
+- AI augmentation and review flows below: not implemented yet
+
 ### Raw Workout Import
 
 Input:
@@ -306,6 +336,8 @@ Steps:
 
 ## AI Augmentation Operations
 
+Not implemented yet. These sections describe the next phase after the DB foundation.
+
 ### Exercise Mapping Agent
 
 For each workout item with no approved current exercise mapping:
@@ -334,6 +366,8 @@ For each completed workout item with non-empty `result_raw`:
 
 ## Review Operations
 
+Not implemented yet. Historical assertion storage is supported by the schema, but approval/rejection workflows are not wired.
+
 Approval flow:
 
 1. User approves a pending assertion.
@@ -351,10 +385,8 @@ Correction flow:
 2. Supersede older current assertion through `superseded_by_id`.
 3. Keep all historical rows.
 
-## Open Implementation Choices
+## Remaining Open Choices
 
-1. Whether to use PostgreSQL enums or text plus check constraints for states and review statuses.
-2. Whether to store raw parsed JSON snapshots per row as `jsonb` for easier reprocessing.
-3. Whether `workout_items.exercise_id` should exist as a convenience FK or be removed to force all exercise linkage through `workout_item_exercises`.
-4. Exact category seed list.
-5. Exact metric type vocabulary.
+1. Whether to store raw parsed JSON snapshots per row as `jsonb` for easier reprocessing.
+2. Exact metric type vocabulary.
+3. Whether to add an exercise alias table for multiple TrueCoach exercise IDs that collapse into one canonical exercise.

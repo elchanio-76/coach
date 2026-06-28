@@ -1,5 +1,9 @@
 # DB schema design notes
 
+These are the user's initial notes about DB design.
+
+This file is historical input only. The current source of truth is [DB schema plan.md](./DB%20schema%20plan.md), which reflects the implemented schema, import workflow, and deferred AI work.
+
 ## Fields to keep
 
 ### workouts.jsonl
@@ -20,7 +24,7 @@ we also want the fields that allow linking with the detailed workouts:
 
 ### workout_items.jsonl
 
-- Store workout_item data in an "exercises" table
+- Early note: store workout item data separately from canonical exercises. Implemented schema uses `workout_items` as the main analytical table and `exercises` only for canonical atomic movements.
 - "exercise_id": this is the truecoach exercise_id. Keep. Populate exercise names from the "name" property where id is not null. Should be unique.
 - "name": Keep.
 - "info" & "info_display" look exactly the same in the sample dataset. Keep one ("info")
@@ -48,12 +52,7 @@ we also want the fields that allow linking with the detailed workouts:
     - color_code: Optional color code for UI display
     - created_at/updated_at: Timestamps
     - deleted_at: Soft delete flag
-12. Add a exercise_category table to handle many-to-many relationships between workout items and categories:
-    - id: Primary key
-    - exercise_id: Foreign key referencing exercises.id
-    - category_id: Foreign key referencing workout_categories.id
-    - created_at: Timestamp
-    - deleted_at: Soft delete flag
+12. This evolved in the implemented design into `workout_item_categories`, because taxonomy applies to workout items, not canonical exercises.
 13. Exercises table should store unique exercise definitions from TrueCoach:
     - id: Primary key
     - tc_exercise_id: Unique identifier from TrueCoach (exercise_id field)
@@ -62,17 +61,5 @@ we also want the fields that allow linking with the detailed workouts:
     - created_at: Timestamp
     - updated_at: Timestamp
     - deleted_at: Soft delete flag
-14. The exercise name and descriptions should be reviewed by an AI agent to ensure consistency and accuracy. The agent will determine the exercise name and category based on the description and available data, for incoming exercises that have no exercise_id (where the tc_exercise_id is null)
-15. Once the AI agent determines the exercise name and category, populate the exercises table with the new entry and create the corresponding relationship in the exercise_categories table.
-16. An AI agent should also analyze the results to extract structured performance metrics (e.g., max weight, reps, failure points) and populate a dedicated "workout_performance" table for detailed analytics and progress tracking.
-17. The analytics should be stored in a results table which tracks individual workout session metrics, including:
-    - id: Primary key
-    - workout_item_id: Foreign key referencing exercises.id
-    - workout_id: Foreign key referencing workouts.id
-    - metric_type: Type of metric recorded (e.g., max_weight, reps, failure_point)
-    - value: Numeric value of the metric
-    - unit: Unit of measurement (kg, lbs, reps, rounds)
-    - timestamp: When the result was recorded (this should be the due date of the workout)
-    - source_data: Original unprocessed result text from TrueCoach
-    - created_at/updated_at: Timestamps
-    - deleted_at: Soft delete flag
+14. AI enrichment is deferred for now. The implemented schema supports versioned assertions in `workout_item_exercises`, `workout_item_categories`, and `workout_item_metrics`, but no AI workflow is wired yet.
+15. Structured analytics are also deferred. The implemented target table for this concept is `workout_item_metrics`, not a separate `results` or `workout_performance` table.
