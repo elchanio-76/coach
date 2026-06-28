@@ -141,6 +141,7 @@ Latest verified local bootstrap run:
 
 1. Add source deletion detection for syncs instead of only upsert behavior.
 2. Add richer incremental sync and resumability.
-3. Add AI exercise mapping proposals for uncategorized workout items.
-4. Add AI category assignment proposals for workout items.
-5. Add AI metric extraction proposals from `result_raw` and `info_raw`.
+3. Replace direct canonical exercise source mapping with an `exercise_source_aliases` table so multiple TrueCoach exercise IDs can resolve to one canonical exercise.
+4. Add AI exercise mapping proposals for uncategorized workout items.
+5. Add AI category assignment proposals for workout items.
+6. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.

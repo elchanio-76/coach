@@ -112,3 +112,6 @@ Known implementation details:
 - The importer currently reads parsed seed files from `data/cache/truecoach/parsed/`.
 - AI enrichment tables exist, but no AI write/review workflow is implemented yet.
 - The canonical exercise import currently collapses duplicate TrueCoach exercise IDs by canonical name when names coincide.
+- Raw parsed JSON snapshots are intentionally not stored per row in Postgres.
+- The agreed `workout_item_metrics.metric_type` v1 vocabulary is: `best_successful_weight`, `failed_weight`, `reps_completed`, `sets_completed`, `rounds_completed`, `extra_reps`, `distance_completed`, `duration_completed`, `time_to_complete`, `time_cap`, `calories_completed`.
+- The next schema revision should introduce `exercise_source_aliases` so multiple TrueCoach exercise IDs can map to one canonical exercise.

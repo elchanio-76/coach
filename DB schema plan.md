@@ -24,6 +24,9 @@ Current implementation choices:
 - Status/source vocabularies use text columns plus check constraints, not PostgreSQL enums.
 - Parsed input source path is `data/cache/truecoach/parsed/`.
 - Duplicate TrueCoach exercise IDs that resolve to the same canonical name are merged during import by name.
+- Raw parsed JSON snapshots will not be stored per row in Postgres. Raw provenance remains in `data/cache/truecoach/api/`, `data/cache/truecoach/parsed/`, and `tc_source_file` / `tc_source_page`.
+- `workout_item_metrics.metric_type` uses a shared constrained vocabulary and should be extended deliberately over time.
+- The next schema revision should add `exercise_source_aliases` and retire `exercises.tc_exercise_id` as the long-term authoritative source mapping.
 
 ## Design Principles
 
@@ -156,7 +159,6 @@ Columns:
 - `uuid`: local UUID
 - `name`: canonical exercise name
 - `description`: nullable
-- `tc_exercise_id`: nullable, unique where present
 - `created_by_source`: `truecoach`, `ai`, `user`, `system`
 - `review_status`: `pending`, `approved`, `rejected`, `superseded`
 - `created_at`
@@ -166,8 +168,30 @@ Columns:
 Constraints and indexes:
 
 - unique lower-normalized `name` eventually, after deciding normalization rules
-- unique `tc_exercise_id`
 - index `review_status`
+
+### exercise_source_aliases
+
+Authoritative mapping from source-system exercise identifiers to canonical exercises.
+
+This table should replace `exercises.tc_exercise_id` as the long-term source identity mapping mechanism.
+
+Columns:
+
+- `id`: local primary key
+- `uuid`: local UUID
+- `exercise_id`: FK to `exercises.id`
+- `source_system`: `truecoach` for now, extensible later
+- `source_exercise_id`: source-system exercise ID
+- `source_name`: nullable source-provided exercise name
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Constraints and indexes:
+
+- unique `(source_system, source_exercise_id)`
+- index `exercise_id`
 
 ### workout_categories
 
@@ -263,6 +287,27 @@ Examples:
 - `extra_reps = 10 cal`
 - `time_cap = 15 min`
 
+Controlled `metric_type` vocabulary for v1:
+
+- `best_successful_weight`
+- `failed_weight`
+- `reps_completed`
+- `sets_completed`
+- `rounds_completed`
+- `extra_reps`
+- `distance_completed`
+- `duration_completed`
+- `time_to_complete`
+- `time_cap`
+- `calories_completed`
+
+Rules:
+
+- Use this as a shared constrained vocabulary across all workout items.
+- Keep units in `unit`, not in `metric_type`.
+- Use `source_text` for the original span or full source text.
+- If a value cannot be mapped cleanly, prefer omitting the row or using `value_text` only when the semantic fit to an existing `metric_type` is clear.
+
 Columns:
 
 - `id`: local primary key
@@ -314,13 +359,14 @@ Steps:
 Input:
 
 - User-provided initial exercise list.
-- TrueCoach `tc_exercise_id` values where present.
+- TrueCoach source exercise IDs where present.
 
 Steps:
 
 1. Insert approved user seed exercises.
-2. For workout items with `tc_exercise_id`, create or update matching `exercises` where useful.
-3. Create `workout_item_exercises` rows from TrueCoach IDs with `source = 'truecoach'`, `review_status = 'approved'`, `is_current = true`.
+2. For workout items with `tc_exercise_id`, resolve the canonical exercise through `exercise_source_aliases`.
+3. When a TrueCoach source exercise ID is known, create or update the corresponding `exercise_source_aliases` row.
+4. Create `workout_item_exercises` rows from resolved canonical exercises with `source = 'truecoach'`, `review_status = 'approved'`, `is_current = true`.
 
 ### Seed Category Import
 
@@ -387,6 +433,5 @@ Correction flow:
 
 ## Remaining Open Choices
 
-1. Whether to store raw parsed JSON snapshots per row as `jsonb` for easier reprocessing.
-2. Exact metric type vocabulary.
-3. Whether to add an exercise alias table for multiple TrueCoach exercise IDs that collapse into one canonical exercise.
+1. Exact migration path from `exercises.tc_exercise_id` to `exercise_source_aliases`.
+2. Whether to add merge or text-synonym tooling later for AI-created near-duplicate canonical exercises.

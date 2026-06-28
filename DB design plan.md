@@ -4,6 +4,12 @@ These are the user's initial notes about DB design.
 
 This file is historical input only. The current source of truth is [DB schema plan.md](./DB%20schema%20plan.md), which reflects the implemented schema, import workflow, and deferred AI work.
 
+Later decisions already made after these notes:
+
+- Do not store raw parsed JSON snapshots per row in Postgres.
+- Use a constrained shared `workout_item_metrics.metric_type` vocabulary.
+- Introduce `exercise_source_aliases` for source-system exercise IDs instead of relying long-term on `exercises.tc_exercise_id`.
+
 ## Fields to keep
 
 ### workouts.jsonl
