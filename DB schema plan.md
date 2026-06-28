@@ -8,10 +8,12 @@ Implemented:
 
 - SQLAlchemy models for source tables, canonical tables, and versioned enrichment tables.
 - Alembic setup and initial schema migration.
+- `exercise_source_aliases` migration and importer path for source-system exercise IDs.
 - Parsed raw import from `data/cache/truecoach/parsed/`.
 - Category seed import from `workout_categories.json`.
-- TrueCoach exercise mapping import into `exercises` and `workout_item_exercises`.
+- TrueCoach exercise mapping import into `exercises`, `exercise_source_aliases`, and `workout_item_exercises`.
 - `workout_items.exercise_id` convenience FK alongside the authoritative many-to-many table.
+- Incremental import verified by fetching and importing page 2 from the TrueCoach workouts endpoint.
 
 Not implemented yet:
 
@@ -23,10 +25,22 @@ Current implementation choices:
 
 - Status/source vocabularies use text columns plus check constraints, not PostgreSQL enums.
 - Parsed input source path is `data/cache/truecoach/parsed/`.
-- Duplicate TrueCoach exercise IDs that resolve to the same canonical name are merged during import by name.
 - Raw parsed JSON snapshots will not be stored per row in Postgres. Raw provenance remains in `data/cache/truecoach/api/`, `data/cache/truecoach/parsed/`, and `tc_source_file` / `tc_source_page`.
 - `workout_item_metrics.metric_type` uses a shared constrained vocabulary and should be extended deliberately over time.
-- The next schema revision should add `exercise_source_aliases` and retire `exercises.tc_exercise_id` as the long-term authoritative source mapping.
+- Source-system exercise identity is resolved through `exercise_source_aliases`; `exercises.tc_exercise_id` has been retired.
+- Multiple TrueCoach exercise IDs can resolve to one canonical exercise through `exercise_source_aliases`.
+
+Latest verified parsed/imported dataset:
+
+- input files:
+  - `data/cache/truecoach/api/workouts-client-1172649-page-1.json`
+  - `data/cache/truecoach/api/workouts-client-1172649-page-2.json`
+- parsed workouts: `60`
+- parsed workout items: `175`
+- parsed attachments: `6`
+- parsed anomalies: `0`
+- imported TrueCoach exercise mappings: `64`
+- incremental page-2 import added `13` canonical exercises and `13` `exercise_source_aliases`
 
 ## Design Principles
 
@@ -334,7 +348,7 @@ Current implementation status:
 
 - `Raw Workout Import`: implemented
 - `Seed Category Import`: implemented
-- `Seed Exercise Import`: partially implemented through TrueCoach-derived exercise upserts and `workout_item_exercises` creation
+- `Seed Exercise Import`: implemented through canonical exercise upserts, `exercise_source_aliases`, and `workout_item_exercises`
 - AI augmentation and review flows below: not implemented yet
 
 ### Raw Workout Import
@@ -433,5 +447,4 @@ Correction flow:
 
 ## Remaining Open Choices
 
-1. Exact migration path from `exercises.tc_exercise_id` to `exercise_source_aliases`.
-2. Whether to add merge or text-synonym tooling later for AI-created near-duplicate canonical exercises.
+1. Whether to add merge or text-synonym tooling later for AI-created near-duplicate canonical exercises.

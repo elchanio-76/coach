@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from .models import Exercise, Workout, WorkoutCategory, WorkoutItem, WorkoutItemAttachment, WorkoutItemExercise
+from .models import Exercise, ExerciseSourceAlias, Workout, WorkoutCategory, WorkoutItem, WorkoutItemAttachment, WorkoutItemExercise
 
 
 DEFAULT_PARSED_DIR = Path("data/cache/truecoach/parsed")
@@ -25,6 +25,7 @@ class ImportSummary:
     attachments: int = 0
     categories: int = 0
     exercises: int = 0
+    exercise_source_aliases: int = 0
     workout_item_exercises: int = 0
 
 
@@ -74,7 +75,7 @@ def import_parsed_data(
 
     workouts = _upsert_workouts(session, workout_records)
     workout_lookup = _load_lookup(session, select(Workout.tc_workout_id, Workout.id))
-    exercises, exercise_lookup = _upsert_exercises_from_truecoach(session, item_records)
+    exercises, aliases, exercise_lookup = _upsert_exercises_from_truecoach(session, item_records)
     workout_items = _upsert_workout_items(session, item_records, workout_lookup, exercise_lookup)
     item_lookup = _load_lookup(session, select(WorkoutItem.tc_workout_item_id, WorkoutItem.id))
     attachments = _upsert_attachments(session, attachment_records, item_lookup)
@@ -85,6 +86,7 @@ def import_parsed_data(
         workout_items=workout_items,
         attachments=attachments,
         exercises=exercises,
+        exercise_source_aliases=aliases,
         workout_item_exercises=workout_item_exercises,
     )
 
@@ -122,8 +124,9 @@ def _upsert_workouts(session: Session, records: list[dict[str, Any]]) -> int:
     return count
 
 
-def _upsert_exercises_from_truecoach(session: Session, records: list[dict[str, Any]]) -> tuple[int, dict[int, int]]:
-    count = 0
+def _upsert_exercises_from_truecoach(session: Session, records: list[dict[str, Any]]) -> tuple[int, int, dict[int, int]]:
+    exercise_count = 0
+    alias_count = 0
     lookup: dict[int, int] = {}
     seen: set[int] = set()
     for record in records:
@@ -132,33 +135,46 @@ def _upsert_exercises_from_truecoach(session: Session, records: list[dict[str, A
             continue
         seen.add(tc_exercise_id)
         name = _preferred_exercise_name(record)
-        normalized_name = name.strip().casefold()
         with session.no_autoflush:
-            exercise = session.execute(
-                select(Exercise).where(Exercise.tc_exercise_id == tc_exercise_id)
+            alias = session.execute(
+                select(ExerciseSourceAlias).where(
+                    ExerciseSourceAlias.source_system == "truecoach",
+                    ExerciseSourceAlias.source_exercise_id == tc_exercise_id,
+                )
             ).scalar_one_or_none()
+            exercise = None
+            if alias is not None:
+                exercise = session.get(Exercise, alias.exercise_id)
             if exercise is None:
-                exercise = session.execute(
-                    select(Exercise).where(Exercise.name.ilike(name))
-                ).scalar_one_or_none()
+                exercise = session.execute(select(Exercise).where(Exercise.name.ilike(name))).scalar_one_or_none()
         if exercise is None:
             exercise = Exercise(
                 name=name,
-                tc_exercise_id=tc_exercise_id,
                 created_by_source="truecoach",
                 review_status="approved",
             )
             session.add(exercise)
             session.flush()
+            exercise_count += 1
         else:
             exercise.name = name
             exercise.review_status = "approved"
-            if exercise.tc_exercise_id is None and exercise.name.strip().casefold() == normalized_name:
-                exercise.tc_exercise_id = tc_exercise_id
             session.flush()
+        if alias is None:
+            session.add(
+                ExerciseSourceAlias(
+                    exercise_id=exercise.id,
+                    source_system="truecoach",
+                    source_exercise_id=tc_exercise_id,
+                    source_name=name,
+                )
+            )
+            alias_count += 1
+        else:
+            alias.exercise_id = exercise.id
+            alias.source_name = name
         lookup[tc_exercise_id] = exercise.id
-        count += 1
-    return count, lookup
+    return exercise_count, alias_count, lookup
 
 
 def _upsert_workout_items(

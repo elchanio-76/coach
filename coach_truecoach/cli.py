@@ -170,6 +170,7 @@ def main() -> None:
             print(f"Imported workout items: {summary.workout_items}")
             print(f"Imported attachments: {summary.attachments}")
             print(f"Imported exercises: {summary.exercises}")
+            print(f"Imported exercise source aliases: {summary.exercise_source_aliases}")
             print(f"Imported workout item exercises: {summary.workout_item_exercises}")
         elif args.command == "db-bootstrap":
             _run_db_upgrade("head")
@@ -182,6 +183,7 @@ def main() -> None:
             print(f"Imported workout items: {summary.workout_items}")
             print(f"Imported attachments: {summary.attachments}")
             print(f"Imported exercises: {summary.exercises}")
+            print(f"Imported exercise source aliases: {summary.exercise_source_aliases}")
             print(f"Imported workout item exercises: {summary.workout_item_exercises}")
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)

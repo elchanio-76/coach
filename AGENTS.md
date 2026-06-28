@@ -93,6 +93,7 @@ Database status:
 - Canonical `exercises` represent atomic movements only.
 - Taxonomy applies to `workout_items`, not canonical exercises.
 - Versioned enrichment tables exist: `workout_item_exercises`, `workout_item_categories`, and `workout_item_metrics`.
+- `exercise_source_aliases` is implemented for canonical exercise mapping from source-system exercise IDs.
 - Rejected and superseded AI assertions must remain stored for audit, few-shot examples, and future training data.
 - Category seed import from `workout_categories.json` is implemented.
 - Parsed raw import from `data/cache/truecoach/parsed/` is implemented.
@@ -101,17 +102,19 @@ Database status:
 Latest verified local bootstrap run:
 
 - Seeded workout categories: `6`
-- Imported workouts: `30`
-- Imported workout items: `95`
+- Imported workouts: `60`
+- Imported workout items: `175`
 - Imported attachments: `6`
-- Imported canonical exercises: `29`
-- Imported TrueCoach exercise mappings: `36`
+- Imported canonical exercises: `13` when page 2 was added; canonical exercises are reused on pure reruns
+- Imported exercise source aliases: `13` when page 2 was added; `1` was created during the earlier alias-migration rerun
+- Imported TrueCoach exercise mappings: `64`
 
 Known implementation details:
 
 - The importer currently reads parsed seed files from `data/cache/truecoach/parsed/`.
+- The current verified parsed dataset spans `workouts-client-1172649-page-1.json` and `workouts-client-1172649-page-2.json`.
 - AI enrichment tables exist, but no AI write/review workflow is implemented yet.
-- The canonical exercise import currently collapses duplicate TrueCoach exercise IDs by canonical name when names coincide.
+- The importer now resolves source exercise IDs through `exercise_source_aliases` instead of `exercises.tc_exercise_id`.
+- Multiple TrueCoach exercise IDs can map to one canonical exercise through `exercise_source_aliases`.
 - Raw parsed JSON snapshots are intentionally not stored per row in Postgres.
 - The agreed `workout_item_metrics.metric_type` v1 vocabulary is: `best_successful_weight`, `failed_weight`, `reps_completed`, `sets_completed`, `rounds_completed`, `extra_reps`, `distance_completed`, `duration_completed`, `time_to_complete`, `time_cap`, `calories_completed`.
-- The next schema revision should introduce `exercise_source_aliases` so multiple TrueCoach exercise IDs can map to one canonical exercise.

@@ -131,17 +131,22 @@ The database schema and bootstrap flow are implemented. See `DB schema plan.md` 
 Latest verified local bootstrap run:
 
 - Seeded workout categories: `6`
-- Imported workouts: `30`
-- Imported workout items: `95`
+- Imported workouts: `60`
+- Imported workout items: `175`
 - Imported attachments: `6`
-- Imported canonical exercises: `29`
-- Imported TrueCoach exercise mappings: `36`
+- Imported canonical exercises: `13` when page 2 was added; canonical exercises are reused on pure reruns
+- Imported exercise source aliases: `13` when page 2 was added; `1` was created during the earlier alias-migration rerun
+- Imported TrueCoach exercise mappings: `64`
+
+Current verified parsed dataset:
+
+- `workouts-client-1172649-page-1.json`
+- `workouts-client-1172649-page-2.json`
 
 ## Next Steps
 
 1. Add source deletion detection for syncs instead of only upsert behavior.
 2. Add richer incremental sync and resumability.
-3. Replace direct canonical exercise source mapping with an `exercise_source_aliases` table so multiple TrueCoach exercise IDs can resolve to one canonical exercise.
-4. Add AI exercise mapping proposals for uncategorized workout items.
-5. Add AI category assignment proposals for workout items.
-6. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.
+3. Add AI exercise mapping proposals for uncategorized workout items.
+4. Add AI category assignment proposals for workout items.
+5. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -97,15 +97,27 @@ class Exercise(TimestampMixin, UUIDMixin, Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
-        UniqueConstraint("tc_exercise_id", name="uq_exercises_tc_exercise_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    tc_exercise_id: Mapped[int | None] = mapped_column(Integer)
     created_by_source: Mapped[str] = mapped_column(String(32), nullable=False)
     review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+
+
+class ExerciseSourceAlias(TimestampMixin, UUIDMixin, Base):
+    __tablename__ = "exercise_source_aliases"
+    __table_args__ = (
+        UniqueConstraint("source_system", "source_exercise_id", name="uq_exercise_source_aliases_source_key"),
+        Index("ix_exercise_source_aliases_exercise_id", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_exercise_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_name: Mapped[str | None] = mapped_column(Text)
 
 
 class WorkoutCategory(TimestampMixin, UUIDMixin, Base):

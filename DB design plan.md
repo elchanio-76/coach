@@ -8,7 +8,7 @@ Later decisions already made after these notes:
 
 - Do not store raw parsed JSON snapshots per row in Postgres.
 - Use a constrained shared `workout_item_metrics.metric_type` vocabulary.
-- Introduce `exercise_source_aliases` for source-system exercise IDs instead of relying long-term on `exercises.tc_exercise_id`.
+- `exercise_source_aliases` is now the implemented long-term mapping for source-system exercise IDs.
 
 ## Fields to keep
 
@@ -61,7 +61,7 @@ we also want the fields that allow linking with the detailed workouts:
 12. This evolved in the implemented design into `workout_item_categories`, because taxonomy applies to workout items, not canonical exercises.
 13. Exercises table should store unique exercise definitions from TrueCoach:
     - id: Primary key
-    - tc_exercise_id: Unique identifier from TrueCoach (exercise_id field)
+    - historical note: `tc_exercise_id` started as an exercise column, but the implemented design now maps source IDs through `exercise_source_aliases`
     - name: Exercise name (from "name" property)
     - description: Text description of the exercise (if available)
     - created_at: Timestamp
