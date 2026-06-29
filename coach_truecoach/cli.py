@@ -4,8 +4,12 @@ import argparse
 import sys
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
+
 from . import api
 from . import browser
+from .db import create_engine, import_parsed_data, seed_workout_categories, session_scope
 from . import parser as workout_parser
 from .config import DEFAULT_BASE_URL, TrueCoachPaths
 
@@ -60,8 +64,41 @@ def main() -> None:
         help="Directory for parsed JSONL output. Defaults to data/cache/truecoach/parsed.",
     )
 
+    db_upgrade_parser = subparsers.add_parser("db-upgrade", help="Apply Alembic migrations to the configured database")
+    db_upgrade_parser.add_argument("--revision", default="head", help="Alembic revision target")
+
+    seed_categories_parser = subparsers.add_parser("db-seed-categories", help="Seed workout categories")
+    seed_categories_parser.add_argument(
+        "--categories-file",
+        type=Path,
+        default=Path("workout_categories.json"),
+        help="Path to category seed JSON",
+    )
+
+    import_parsed_parser = subparsers.add_parser("db-import-parsed", help="Import parsed TrueCoach data into Postgres")
+    import_parsed_parser.add_argument(
+        "--parsed-dir",
+        type=Path,
+        default=Path("data/cache/truecoach/parsed"),
+        help="Directory containing workouts.jsonl, workout_items.jsonl, and attachments.jsonl",
+    )
+
+    bootstrap_parser = subparsers.add_parser("db-bootstrap", help="Run migrations, seed categories, and import parsed data")
+    bootstrap_parser.add_argument(
+        "--categories-file",
+        type=Path,
+        default=Path("workout_categories.json"),
+        help="Path to category seed JSON",
+    )
+    bootstrap_parser.add_argument(
+        "--parsed-dir",
+        type=Path,
+        default=Path("data/cache/truecoach/parsed"),
+        help="Directory containing parsed JSONL files",
+    )
+
     args = parser.parse_args()
-    paths = TrueCoachPaths(cache_dir=args.cache_dir)
+    paths = TrueCoachPaths(cache_dir=args.cache_dir) if hasattr(args, "cache_dir") else TrueCoachPaths()
 
     try:
         if args.command == "login":
@@ -117,6 +154,37 @@ def main() -> None:
             )
             for name, path in outputs.items():
                 print(f"{name}: {path}")
+        elif args.command == "db-upgrade":
+            _run_db_upgrade(args.revision)
+            print(f"Database upgraded to {args.revision}")
+        elif args.command == "db-seed-categories":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                count = seed_workout_categories(session, args.categories_file)
+            print(f"Seeded workout categories: {count}")
+        elif args.command == "db-import-parsed":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                summary = import_parsed_data(session, args.parsed_dir)
+            print(f"Imported workouts: {summary.workouts}")
+            print(f"Imported workout items: {summary.workout_items}")
+            print(f"Imported attachments: {summary.attachments}")
+            print(f"Imported exercises: {summary.exercises}")
+            print(f"Imported exercise source aliases: {summary.exercise_source_aliases}")
+            print(f"Imported workout item exercises: {summary.workout_item_exercises}")
+        elif args.command == "db-bootstrap":
+            _run_db_upgrade("head")
+            engine = create_engine()
+            with session_scope(engine) as session:
+                categories = seed_workout_categories(session, args.categories_file)
+                summary = import_parsed_data(session, args.parsed_dir)
+            print(f"Seeded workout categories: {categories}")
+            print(f"Imported workouts: {summary.workouts}")
+            print(f"Imported workout items: {summary.workout_items}")
+            print(f"Imported attachments: {summary.attachments}")
+            print(f"Imported exercises: {summary.exercises}")
+            print(f"Imported exercise source aliases: {summary.exercise_source_aliases}")
+            print(f"Imported workout item exercises: {summary.workout_item_exercises}")
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -134,6 +202,11 @@ def _add_common_options(parser: argparse.ArgumentParser, *, default_headless: bo
     headless_group = parser.add_mutually_exclusive_group()
     headless_group.add_argument("--headless", action="store_true", default=default_headless)
     headless_group.add_argument("--headed", action="store_false", dest="headless")
+
+
+def _run_db_upgrade(revision: str) -> None:
+    config = Config(str(Path("alembic.ini")))
+    command.upgrade(config, revision)
 
 
 if __name__ == "__main__":

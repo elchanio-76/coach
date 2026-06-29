@@ -2,6 +2,46 @@
 
 This plan converts the TrueCoach API data into durable source tables, then layers human/AI enrichment on top as versioned assertions.
 
+## Current Implementation Status
+
+Implemented:
+
+- SQLAlchemy models for source tables, canonical tables, and versioned enrichment tables.
+- Alembic setup and initial schema migration.
+- `exercise_source_aliases` migration and importer path for source-system exercise IDs.
+- Parsed raw import from `data/cache/truecoach/parsed/`.
+- Category seed import from `workout_categories.json`.
+- TrueCoach exercise mapping import into `exercises`, `exercise_source_aliases`, and `workout_item_exercises`.
+- `workout_items.exercise_id` convenience FK alongside the authoritative many-to-many table.
+- Incremental import verified by fetching and importing page 2 from the TrueCoach workouts endpoint.
+
+Not implemented yet:
+
+- AI exercise/category/metric proposal workflows.
+- Review/approval UI or workflow for enrichment assertions.
+- Source deletion detection during sync.
+
+Current implementation choices:
+
+- Status/source vocabularies use text columns plus check constraints, not PostgreSQL enums.
+- Parsed input source path is `data/cache/truecoach/parsed/`.
+- Raw parsed JSON snapshots will not be stored per row in Postgres. Raw provenance remains in `data/cache/truecoach/api/`, `data/cache/truecoach/parsed/`, and `tc_source_file` / `tc_source_page`.
+- `workout_item_metrics.metric_type` uses a shared constrained vocabulary and should be extended deliberately over time.
+- Source-system exercise identity is resolved through `exercise_source_aliases`; `exercises.tc_exercise_id` has been retired.
+- Multiple TrueCoach exercise IDs can resolve to one canonical exercise through `exercise_source_aliases`.
+
+Latest verified parsed/imported dataset:
+
+- input files:
+  - `data/cache/truecoach/api/workouts-client-1172649-page-1.json`
+  - `data/cache/truecoach/api/workouts-client-1172649-page-2.json`
+- parsed workouts: `60`
+- parsed workout items: `175`
+- parsed attachments: `6`
+- parsed anomalies: `0`
+- imported TrueCoach exercise mappings: `64`
+- incremental page-2 import added `13` canonical exercises and `13` `exercise_source_aliases`
+
 ## Design Principles
 
 1. Keep TrueCoach source fields with a `tc_` prefix.
@@ -47,7 +87,7 @@ Columns:
 Constraints and indexes:
 
 - unique `tc_workout_id`
-- unique `tc_uuid` where not null
+- unique `tc_uuid`
 - index `due_date`
 - index `state`
 
@@ -133,7 +173,6 @@ Columns:
 - `uuid`: local UUID
 - `name`: canonical exercise name
 - `description`: nullable
-- `tc_exercise_id`: nullable, unique where present
 - `created_by_source`: `truecoach`, `ai`, `user`, `system`
 - `review_status`: `pending`, `approved`, `rejected`, `superseded`
 - `created_at`
@@ -143,8 +182,30 @@ Columns:
 Constraints and indexes:
 
 - unique lower-normalized `name` eventually, after deciding normalization rules
-- unique `tc_exercise_id` where not null
 - index `review_status`
+
+### exercise_source_aliases
+
+Authoritative mapping from source-system exercise identifiers to canonical exercises.
+
+This table should replace `exercises.tc_exercise_id` as the long-term source identity mapping mechanism.
+
+Columns:
+
+- `id`: local primary key
+- `uuid`: local UUID
+- `exercise_id`: FK to `exercises.id`
+- `source_system`: `truecoach` for now, extensible later
+- `source_exercise_id`: source-system exercise ID
+- `source_name`: nullable source-provided exercise name
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Constraints and indexes:
+
+- unique `(source_system, source_exercise_id)`
+- index `exercise_id`
 
 ### workout_categories
 
@@ -240,6 +301,27 @@ Examples:
 - `extra_reps = 10 cal`
 - `time_cap = 15 min`
 
+Controlled `metric_type` vocabulary for v1:
+
+- `best_successful_weight`
+- `failed_weight`
+- `reps_completed`
+- `sets_completed`
+- `rounds_completed`
+- `extra_reps`
+- `distance_completed`
+- `duration_completed`
+- `time_to_complete`
+- `time_cap`
+- `calories_completed`
+
+Rules:
+
+- Use this as a shared constrained vocabulary across all workout items.
+- Keep units in `unit`, not in `metric_type`.
+- Use `source_text` for the original span or full source text.
+- If a value cannot be mapped cleanly, prefer omitting the row or using `value_text` only when the semantic fit to an existing `metric_type` is clear.
+
 Columns:
 
 - `id`: local primary key
@@ -261,6 +343,13 @@ Constraints and indexes:
 - partial index for current approved rows on `(workout_item_id, metric_type)` where `is_current = true AND review_status = 'approved'`
 
 ## Import Operations
+
+Current implementation status:
+
+- `Raw Workout Import`: implemented
+- `Seed Category Import`: implemented
+- `Seed Exercise Import`: implemented through canonical exercise upserts, `exercise_source_aliases`, and `workout_item_exercises`
+- AI augmentation and review flows below: not implemented yet
 
 ### Raw Workout Import
 
@@ -284,13 +373,14 @@ Steps:
 Input:
 
 - User-provided initial exercise list.
-- TrueCoach `tc_exercise_id` values where present.
+- TrueCoach source exercise IDs where present.
 
 Steps:
 
 1. Insert approved user seed exercises.
-2. For workout items with `tc_exercise_id`, create or update matching `exercises` where useful.
-3. Create `workout_item_exercises` rows from TrueCoach IDs with `source = 'truecoach'`, `review_status = 'approved'`, `is_current = true`.
+2. For workout items with `tc_exercise_id`, resolve the canonical exercise through `exercise_source_aliases`.
+3. When a TrueCoach source exercise ID is known, create or update the corresponding `exercise_source_aliases` row.
+4. Create `workout_item_exercises` rows from resolved canonical exercises with `source = 'truecoach'`, `review_status = 'approved'`, `is_current = true`.
 
 ### Seed Category Import
 
@@ -305,6 +395,8 @@ Steps:
 3. Future AI/user workflow applies categories to workout items through `workout_item_categories`.
 
 ## AI Augmentation Operations
+
+Not implemented yet. These sections describe the next phase after the DB foundation.
 
 ### Exercise Mapping Agent
 
@@ -334,6 +426,8 @@ For each completed workout item with non-empty `result_raw`:
 
 ## Review Operations
 
+Not implemented yet. Historical assertion storage is supported by the schema, but approval/rejection workflows are not wired.
+
 Approval flow:
 
 1. User approves a pending assertion.
@@ -351,10 +445,6 @@ Correction flow:
 2. Supersede older current assertion through `superseded_by_id`.
 3. Keep all historical rows.
 
-## Open Implementation Choices
+## Remaining Open Choices
 
-1. Whether to use PostgreSQL enums or text plus check constraints for states and review statuses.
-2. Whether to store raw parsed JSON snapshots per row as `jsonb` for easier reprocessing.
-3. Whether `workout_items.exercise_id` should exist as a convenience FK or be removed to force all exercise linkage through `workout_item_exercises`.
-4. Exact category seed list.
-5. Exact metric type vocabulary.
+1. Whether to add merge or text-synonym tooling later for AI-created near-duplicate canonical exercises.

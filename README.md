@@ -2,6 +2,12 @@
 
 Tools for collecting and analyzing personal training data.
 
+## Status
+
+- TrueCoach login, authenticated API fetch, and parsed JSONL export are implemented.
+- Postgres schema creation, category seeding, and parsed data import are implemented.
+- AI exercise mapping, category assignment, metric extraction, and review workflows are not implemented yet.
+
 ## TrueCoach Navigation
 
 Install dependencies and the Chromium browser used by Playwright:
@@ -33,3 +39,53 @@ Run the first milestone commands:
 
 Generated browser state and inspection artifacts are written to `data/cache/truecoach/`.
 Parsed JSONL records are written to `data/cache/truecoach/parsed/`.
+
+## Database
+
+Set `DBURL` in `.env` to your local Postgres database.
+
+Apply the schema:
+
+```bash
+.venv/bin/coach db-upgrade
+```
+
+Seed categories from `workout_categories.json`:
+
+```bash
+.venv/bin/coach db-seed-categories
+```
+
+Import parsed TrueCoach data:
+
+```bash
+.venv/bin/coach db-import-parsed
+```
+
+Run the full setup in one step:
+
+```bash
+.venv/bin/coach db-bootstrap
+```
+
+The importer reads parsed seed data from `data/cache/truecoach/parsed/`.
+The current category seed file is `workout_categories.json`.
+Database imports are designed to be rerun safely through upsert-style behavior.
+
+Latest verified parsed/imported dataset:
+
+- `60` workouts
+- `175` workout items
+- `6` attachments
+- `64` TrueCoach exercise mappings
+
+When page 2 was added and imported, the alias-aware importer created `13` new canonical exercises and `13` new `exercise_source_aliases`.
+
+## End-to-End Workflow
+
+```bash
+.venv/bin/coach login
+.venv/bin/coach fetch-workouts --pages 1
+.venv/bin/coach parse-workouts
+.venv/bin/coach db-bootstrap
+```

@@ -4,7 +4,34 @@
 
 Build a tool that can authenticate to `https://app.truecoach.co`, navigate the JavaScript-heavy app, and extract training data for later storage and AI-assisted coaching analysis.
 
-## Milestone 1: Authenticated Navigation
+## Current Status
+
+Implemented:
+
+1. Playwright-based login using credentials from `.env`.
+2. Persisted authenticated browser storage for reuse.
+3. Inspection artifacts: screenshots, rendered HTML, control dumps, and captured network responses.
+4. Authenticated workout API fetch via `fetch-workouts`.
+5. Parsed JSONL export via `parse-workouts`.
+6. Postgres schema creation via Alembic.
+7. Category seed import and parsed raw import via the DB CLI.
+
+Verified CLI surface:
+
+```bash
+.venv/bin/coach login
+.venv/bin/coach snapshot
+.venv/bin/coach inspect
+.venv/bin/coach capture --url 'https://app.truecoach.co/client/workouts?_=true&_page=3'
+.venv/bin/coach fetch-workouts --pages 1
+.venv/bin/coach parse-workouts
+.venv/bin/coach db-upgrade
+.venv/bin/coach db-seed-categories
+.venv/bin/coach db-import-parsed
+.venv/bin/coach db-bootstrap
+```
+
+## Implemented Navigation and API Findings
 
 1. Use Playwright browser automation rather than raw HTTP requests.
 2. Log in with username/password credentials from environment variables.
@@ -16,14 +43,6 @@ Build a tool that can authenticate to `https://app.truecoach.co`, navigate the J
    - screenshot
    - rendered HTML snapshot
 5. Use artifacts to determine whether useful data is available through JSON API calls, embedded app state, or rendered DOM.
-
-## Initial CLI
-
-```bash
-coach login
-coach snapshot
-coach inspect
-```
 
 Credentials:
 
@@ -86,34 +105,48 @@ Raw API pages are saved to:
 data/cache/truecoach/api/workouts-client-{client_id}-page-{page}.json
 ```
 
-## Later Milestones
+## Parser Status
 
-1. Build a parser from raw workout pages into normalized Python records.
-2. Design the database schema from the observed API shape.
-3. Store raw source payloads alongside parsed records for audit/reprocessing.
-4. Add an AI-assisted categorization agent after the parser/database foundation is stable.
-5. Add rate limiting, resumability, and incremental sync.
+The parser preserves source text and avoids premature exercise normalization. Workout names, instructions, and results remain free-form text, and sparse TrueCoach `exercise_id` values are preserved separately.
 
-## Parser Plan
+Current parsed entities:
 
-The parser should preserve source text and avoid premature exercise normalization. Workout names, workout instructions, and logged results are free-form text, and TrueCoach `exercise_id` is sparse.
+- `WorkoutRecord`
+- `WorkoutItemRecord`
+- `AttachmentRecord`
+- `AnomalyRecord`
 
-Initial parsed entities:
+Current parsed outputs:
 
-- `WorkoutRecord`: one row per workout with source ID, due date, state, rest day flag, title, program name, warmup/cooldown text, source timestamps, and raw source payload reference.
-- `WorkoutItemRecord`: one row per ordered workout item with source item ID, workout source ID, position, name, prescribed `info`, logged `result`, item state, circuit flag, TrueCoach exercise ID when present, selected exercises, and raw attachments.
-- `AttachmentRecord`: one row per workout item attachment with source item ID, name, URL, MIME type, and size.
+- `workouts.jsonl`
+- `workout_items.jsonl`
+- `attachments.jsonl`
+- `anomalies.jsonl`
+- `summary.json`
 
-Parser responsibilities:
+## Database Status
 
-1. Read one or more raw API page JSON files.
-2. Validate required keys: `meta`, `workouts`, `workout_items`.
-3. Build workout records keyed by `workout.id`.
-4. Attach item records to workouts using `workout_item_ids` and `workout_id`.
-5. Preserve all free-form strings exactly, plus trimmed display variants where useful.
-6. Emit deterministic JSONL/CSV summaries for inspection before database import.
-7. Report anomalies, such as missing item IDs, duplicate IDs, orphan items, unknown states, and malformed attachment data.
+The database schema and bootstrap flow are implemented. See `DB schema plan.md` for the authoritative schema and import details.
 
-Later AI categorization:
+Latest verified local bootstrap run:
 
-After raw parsing and storage, create an AI agent that reviews uncategorized workout items. The agent should map each item to an existing exercise and category where appropriate, or propose/create a new exercise/category entry when no match exists. Initial categories and seed exercises will be user-defined before enabling this workflow.
+- Seeded workout categories: `6`
+- Imported workouts: `60`
+- Imported workout items: `175`
+- Imported attachments: `6`
+- Imported canonical exercises: `13` when page 2 was added; canonical exercises are reused on pure reruns
+- Imported exercise source aliases: `13` when page 2 was added; `1` was created during the earlier alias-migration rerun
+- Imported TrueCoach exercise mappings: `64`
+
+Current verified parsed dataset:
+
+- `workouts-client-1172649-page-1.json`
+- `workouts-client-1172649-page-2.json`
+
+## Next Steps
+
+1. Add source deletion detection for syncs instead of only upsert behavior.
+2. Add richer incremental sync and resumability.
+3. Add AI exercise mapping proposals for uncategorized workout items.
+4. Add AI category assignment proposals for workout items.
+5. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.
