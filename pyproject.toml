@@ -10,6 +10,11 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "psycopg[binary]>=3.2.9",
     "sqlalchemy>=2.0.41",
+    "eralchemy2>=1.4.1",
+    "ollama>=0.6.0",
+    "openai>=2.0.0",
+    "psycopg2-binary>=2.9.12",
+    "strands-agents>=0.1.0",
 ]
 
 [project.scripts]
@@ -19,5 +24,5 @@ coach = "coach_truecoach.cli:main"
 requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["coach_truecoach"]
+[tool.setuptools.packages.find]
+include = ["coach_truecoach*"]
