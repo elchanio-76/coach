@@ -72,6 +72,8 @@ class CategoryAssignmentRunSummary:
     failure_count: int
     manifest_path: Path
     proposals_path: Path
+    inserted_count: int = 0
+    unchanged_count: int = 0
 
 
 class CategoryAssigner(Protocol):
@@ -148,6 +150,59 @@ def run_category_assignment_dry_run(
     output_dir: Path | None = None,
     assigner: CategoryAssigner | None = None,
 ) -> CategoryAssignmentRunSummary:
+    return _run_category_assignment(
+        session,
+        paths=paths,
+        provider=provider,
+        model=model,
+        url=url,
+        limit=limit,
+        workout_item_ids=workout_item_ids,
+        output_dir=output_dir,
+        assigner=assigner,
+        persist=False,
+    )
+
+
+def run_category_assignment_write(
+    session: Session,
+    *,
+    paths: TrueCoachPaths | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    url: str | None = None,
+    limit: int | None = None,
+    workout_item_ids: list[int] | None = None,
+    output_dir: Path | None = None,
+    assigner: CategoryAssigner | None = None,
+) -> CategoryAssignmentRunSummary:
+    return _run_category_assignment(
+        session,
+        paths=paths,
+        provider=provider,
+        model=model,
+        url=url,
+        limit=limit,
+        workout_item_ids=workout_item_ids,
+        output_dir=output_dir,
+        assigner=assigner,
+        persist=True,
+    )
+
+
+def _run_category_assignment(
+    session: Session,
+    *,
+    paths: TrueCoachPaths | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    url: str | None = None,
+    limit: int | None = None,
+    workout_item_ids: list[int] | None = None,
+    output_dir: Path | None = None,
+    assigner: CategoryAssigner | None = None,
+    persist: bool,
+) -> CategoryAssignmentRunSummary:
     if limit is not None and limit < 1:
         raise RuntimeError("--limit must be at least 1")
 
@@ -167,6 +222,8 @@ def run_category_assignment_dry_run(
 
     success_count = 0
     failure_count = 0
+    inserted_count = 0
+    unchanged_count = 0
     with proposals_path.open("w", encoding="utf-8") as handle:
         for item in items:
             prompt_context = _build_prompt_context(item, categories)
@@ -187,6 +244,13 @@ def run_category_assignment_dry_run(
                 proposal = _parse_model_response(raw_response, categories, expected_workout_item_id=item.workout_item_id)
                 record["proposal"] = _proposal_to_record(proposal)
                 record["parse_status"] = "ok"
+                if persist:
+                    write_status = _write_category_assignment_assertion(session, proposal, settings)
+                    record["db_write_status"] = write_status
+                    if write_status == "inserted":
+                        inserted_count += 1
+                    else:
+                        unchanged_count += 1
                 success_count += 1
             except Exception as exc:
                 record["error"] = str(exc)
@@ -198,6 +262,7 @@ def run_category_assignment_dry_run(
         "provider": settings.provider,
         "model": settings.model,
         "url": settings.url,
+        "mode": "write" if persist else "dry_run",
         "selection_mode": "explicit_ids" if workout_item_ids else "uncategorized",
         "filters": {
             "limit": limit,
@@ -206,6 +271,8 @@ def run_category_assignment_dry_run(
         "total_selected": len(items),
         "success_count": success_count,
         "failure_count": failure_count,
+        "inserted_count": inserted_count,
+        "unchanged_count": unchanged_count,
         "proposals_path": str(proposals_path),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -216,6 +283,8 @@ def run_category_assignment_dry_run(
         failure_count=failure_count,
         manifest_path=manifest_path,
         proposals_path=proposals_path,
+        inserted_count=inserted_count,
+        unchanged_count=unchanged_count,
     )
 
 
@@ -434,6 +503,67 @@ def _proposal_to_record(proposal: CategoryAssignmentProposal) -> dict[str, Any]:
     record = asdict(proposal)
     record["confidence"] = str(proposal.confidence)
     return record
+
+
+def _write_category_assignment_assertion(
+    session: Session,
+    proposal: CategoryAssignmentProposal,
+    settings: AISettings,
+) -> str:
+    current_rows = _load_current_pending_ai_categories(session, proposal.workout_item_id)
+    for row in current_rows:
+        if _matches_existing_pending_assertion(row, proposal, settings):
+            return "unchanged"
+
+    new_row = WorkoutItemCategory(
+        workout_item_id=proposal.workout_item_id,
+        category_id=proposal.category_id,
+        source="ai",
+        confidence=proposal.confidence,
+        review_status="pending",
+        is_current=True,
+        model_name=settings.model,
+        model_version=settings.provider,
+        rationale=proposal.rationale,
+    )
+    session.add(new_row)
+    session.flush()
+
+    for row in current_rows:
+        row.review_status = "superseded"
+        row.is_current = False
+        row.superseded_by_id = new_row.id
+
+    return "inserted"
+
+
+def _load_current_pending_ai_categories(session: Session, workout_item_id: int) -> list[WorkoutItemCategory]:
+    return (
+        session.execute(
+            select(WorkoutItemCategory).where(
+                WorkoutItemCategory.workout_item_id == workout_item_id,
+                WorkoutItemCategory.source == "ai",
+                WorkoutItemCategory.review_status == "pending",
+                WorkoutItemCategory.is_current.is_(True),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _matches_existing_pending_assertion(
+    row: WorkoutItemCategory,
+    proposal: CategoryAssignmentProposal,
+    settings: AISettings,
+) -> bool:
+    return (
+        row.category_id == proposal.category_id
+        and row.confidence == proposal.confidence
+        and (row.rationale or "").strip() == proposal.rationale
+        and (row.model_name or "").strip() == settings.model
+        and (row.model_version or "").strip() == settings.provider
+    )
 
 
 def _utc_now() -> datetime:

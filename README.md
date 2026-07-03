@@ -6,8 +6,8 @@ Tools for collecting and analyzing personal training data.
 
 - TrueCoach login, authenticated API fetch, and parsed JSONL export are implemented.
 - Postgres schema creation, category seeding, and parsed data import are implemented.
-- AI category assignment dry-run is implemented.
-- AI exercise mapping, category assignment DB writes, metric extraction, and review workflows are not implemented yet.
+- AI category assignment dry-run and pending DB writes are implemented.
+- AI exercise mapping, metric extraction, and review workflows are not implemented yet.
 
 ## TrueCoach Navigation
 
@@ -82,7 +82,7 @@ Latest verified parsed/imported dataset:
 
 When page 2 was added and imported, the alias-aware importer created `13` new canonical exercises and `13` new `exercise_source_aliases`.
 
-## AI Category Assignment Dry Run
+## AI Category Assignment
 
 Set AI routing in `.env`:
 
@@ -101,6 +101,14 @@ Generate dry-run category proposals for uncategorized workout items:
 ```
 
 Artifacts are written under `data/cache/truecoach/ai/category_assignment/`.
+
+Write pending AI category assertions to Postgres:
+
+```bash
+.venv/bin/coach ai-category-assignment-write --limit 10
+```
+
+Reruns are idempotent for identical current pending assertions and supersede older current pending AI assertions when the proposal changes.
 
 ## End-to-End Workflow
 
