@@ -116,9 +116,11 @@ Known implementation details:
 
 - The importer currently reads parsed seed files from `data/cache/truecoach/parsed/`.
 - The current verified parsed dataset spans `workouts-client-1172649-page-1.json` and `workouts-client-1172649-page-2.json`.
-- AI category assignment dry-run reads from Postgres, selects workout items with no current approved category by default, and writes run artifacts under `data/cache/truecoach/ai/category_assignment/`.
+- AI category assignment dry-run reads from Postgres, skips workout items with current pending or approved categories by default, and writes run artifacts under `data/cache/truecoach/ai/category_assignment/active/`.
 - AI routing is configured with `AI_PROVIDER`, `MODEL`, and `AI_URL`; `OPENAI_API_KEY` is required only when `AI_PROVIDER=openai`.
-- AI enrichment tables exist, but no AI write/review workflow is implemented yet.
+- AI category assignment DB writes are implemented; broader AI review workflow is not.
+- Category runs support bounded windows by local `workout_items.id`, plus explicit include IDs for intentional rechecks.
+- Reviewed/completed category batches can be moved into `data/cache/truecoach/ai/category_assignment/archived/` to reduce accidental recategorization and keep the active queue smaller.
 - The importer now resolves source exercise IDs through `exercise_source_aliases` instead of `exercises.tc_exercise_id`.
 - Multiple TrueCoach exercise IDs can map to one canonical exercise through `exercise_source_aliases`.
 - Raw parsed JSON snapshots are intentionally not stored per row in Postgres.

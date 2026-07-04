@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -147,6 +148,8 @@ def run_category_assignment_dry_run(
     url: str | None = None,
     limit: int | None = None,
     workout_item_ids: list[int] | None = None,
+    min_workout_item_id: int | None = None,
+    max_workout_item_id: int | None = None,
     output_dir: Path | None = None,
     assigner: CategoryAssigner | None = None,
 ) -> CategoryAssignmentRunSummary:
@@ -158,6 +161,8 @@ def run_category_assignment_dry_run(
         url=url,
         limit=limit,
         workout_item_ids=workout_item_ids,
+        min_workout_item_id=min_workout_item_id,
+        max_workout_item_id=max_workout_item_id,
         output_dir=output_dir,
         assigner=assigner,
         persist=False,
@@ -173,6 +178,8 @@ def run_category_assignment_write(
     url: str | None = None,
     limit: int | None = None,
     workout_item_ids: list[int] | None = None,
+    min_workout_item_id: int | None = None,
+    max_workout_item_id: int | None = None,
     output_dir: Path | None = None,
     assigner: CategoryAssigner | None = None,
 ) -> CategoryAssignmentRunSummary:
@@ -184,6 +191,8 @@ def run_category_assignment_write(
         url=url,
         limit=limit,
         workout_item_ids=workout_item_ids,
+        min_workout_item_id=min_workout_item_id,
+        max_workout_item_id=max_workout_item_id,
         output_dir=output_dir,
         assigner=assigner,
         persist=True,
@@ -199,12 +208,24 @@ def _run_category_assignment(
     url: str | None = None,
     limit: int | None = None,
     workout_item_ids: list[int] | None = None,
+    min_workout_item_id: int | None = None,
+    max_workout_item_id: int | None = None,
     output_dir: Path | None = None,
     assigner: CategoryAssigner | None = None,
     persist: bool,
 ) -> CategoryAssignmentRunSummary:
     if limit is not None and limit < 1:
         raise RuntimeError("--limit must be at least 1")
+    if min_workout_item_id is not None and min_workout_item_id < 1:
+        raise RuntimeError("--min-workout-item-id must be at least 1")
+    if max_workout_item_id is not None and max_workout_item_id < 1:
+        raise RuntimeError("--max-workout-item-id must be at least 1")
+    if (
+        min_workout_item_id is not None
+        and max_workout_item_id is not None
+        and min_workout_item_id > max_workout_item_id
+    ):
+        raise RuntimeError("--min-workout-item-id cannot be greater than --max-workout-item-id")
 
     paths = paths or TrueCoachPaths()
     paths.ensure()
@@ -213,6 +234,8 @@ def _run_category_assignment(
     items = select_category_assignment_inputs(
         session,
         workout_item_ids=workout_item_ids,
+        min_workout_item_id=min_workout_item_id,
+        max_workout_item_id=max_workout_item_id,
         limit=limit,
     )
     run_dir = _resolve_output_dir(paths=paths, output_dir=output_dir)
@@ -263,10 +286,16 @@ def _run_category_assignment(
         "model": settings.model,
         "url": settings.url,
         "mode": "write" if persist else "dry_run",
-        "selection_mode": "explicit_ids" if workout_item_ids else "uncategorized",
+        "selection_mode": _selection_mode(
+            workout_item_ids=workout_item_ids,
+            min_workout_item_id=min_workout_item_id,
+            max_workout_item_id=max_workout_item_id,
+        ),
         "filters": {
             "limit": limit,
             "workout_item_ids": workout_item_ids or [],
+            "min_workout_item_id": min_workout_item_id,
+            "max_workout_item_id": max_workout_item_id,
         },
         "total_selected": len(items),
         "success_count": success_count,
@@ -292,10 +321,14 @@ def select_category_assignment_inputs(
     session: Session,
     *,
     workout_item_ids: list[int] | None = None,
+    min_workout_item_id: int | None = None,
+    max_workout_item_id: int | None = None,
     limit: int | None = None,
 ) -> list[CategoryAssignmentInput]:
     statement = build_category_assignment_selection_statement(
         workout_item_ids=workout_item_ids,
+        min_workout_item_id=min_workout_item_id,
+        max_workout_item_id=max_workout_item_id,
         limit=limit,
     )
     rows = session.execute(statement).all()
@@ -327,6 +360,8 @@ def select_category_assignment_inputs(
 def build_category_assignment_selection_statement(
     *,
     workout_item_ids: list[int] | None = None,
+    min_workout_item_id: int | None = None,
+    max_workout_item_id: int | None = None,
     limit: int | None = None,
 ) -> Select[tuple[WorkoutItem, Workout]]:
     statement: Select[tuple[WorkoutItem, Workout]] = (
@@ -335,19 +370,30 @@ def build_category_assignment_selection_statement(
         .order_by(Workout.due_date.asc().nullsfirst(), WorkoutItem.id.asc())
     )
 
-    if workout_item_ids:
-        statement = statement.where(WorkoutItem.id.in_(workout_item_ids))
-    else:
-        approved_exists = exists(
-            select(1).where(
-                and_(
-                    WorkoutItemCategory.workout_item_id == WorkoutItem.id,
-                    WorkoutItemCategory.review_status == "approved",
-                    WorkoutItemCategory.is_current.is_(True),
-                )
+    current_assignment_exists = exists(
+        select(1).where(
+            and_(
+                WorkoutItemCategory.workout_item_id == WorkoutItem.id,
+                WorkoutItemCategory.is_current.is_(True),
+                WorkoutItemCategory.review_status.in_(("pending", "approved")),
             )
         )
-        statement = statement.where(~approved_exists)
+    )
+
+    eligible_window_filters: list[Any] = [~current_assignment_exists]
+    if min_workout_item_id is not None:
+        eligible_window_filters.append(WorkoutItem.id >= min_workout_item_id)
+    if max_workout_item_id is not None:
+        eligible_window_filters.append(WorkoutItem.id <= max_workout_item_id)
+
+    if workout_item_ids:
+        explicit_ids = WorkoutItem.id.in_(workout_item_ids)
+        if min_workout_item_id is not None or max_workout_item_id is not None:
+            statement = statement.where(explicit_ids | and_(*eligible_window_filters))
+        else:
+            statement = statement.where(explicit_ids)
+    else:
+        statement = statement.where(and_(*eligible_window_filters))
 
     if limit is not None:
         statement = statement.limit(limit)
@@ -370,14 +416,49 @@ def _load_categories(session: Session) -> list[CategoryOption]:
     ]
 
 
+def archive_category_assignment_run(
+    *,
+    paths: TrueCoachPaths | None = None,
+    run_dir: Path,
+    archived_dir: Path | None = None,
+) -> Path:
+    paths = paths or TrueCoachPaths()
+    paths.ensure()
+    source_dir = run_dir.resolve()
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise RuntimeError(f"Run directory does not exist: {run_dir}")
+    destination_root = (archived_dir or paths.category_assignment_archived_dir).resolve()
+    destination_root.mkdir(parents=True, exist_ok=True)
+    destination = destination_root / source_dir.name
+    if destination.exists():
+        raise RuntimeError(f"Archived run directory already exists: {destination}")
+    shutil.move(str(source_dir), str(destination))
+    return destination
+
+
 def _resolve_output_dir(*, paths: TrueCoachPaths, output_dir: Path | None) -> Path:
     if output_dir is None:
         timestamp = _utc_now().strftime("%Y%m%dT%H%M%SZ")
-        resolved = paths.category_assignment_dir / timestamp
+        resolved = paths.category_assignment_active_dir / timestamp
     else:
         resolved = output_dir
     resolved.mkdir(parents=True, exist_ok=True)
     return resolved
+
+
+def _selection_mode(
+    *,
+    workout_item_ids: list[int] | None,
+    min_workout_item_id: int | None,
+    max_workout_item_id: int | None,
+) -> str:
+    if workout_item_ids and (min_workout_item_id is not None or max_workout_item_id is not None):
+        return "window_plus_explicit_ids"
+    if workout_item_ids:
+        return "explicit_ids"
+    if min_workout_item_id is not None or max_workout_item_id is not None:
+        return "window"
+    return "uncategorized"
 
 
 def _build_prompt_context(item: CategoryAssignmentInput, categories: list[CategoryOption]) -> dict[str, Any]:

@@ -3,6 +3,7 @@ from .category_assignment import (
     CategoryAssignmentInput,
     CategoryAssignmentProposal,
     CategoryAssignmentRunSummary,
+    archive_category_assignment_run,
     run_category_assignment_dry_run,
     run_category_assignment_write,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "CategoryAssignmentInput",
     "CategoryAssignmentProposal",
     "CategoryAssignmentRunSummary",
+    "archive_category_assignment_run",
     "run_category_assignment_dry_run",
     "run_category_assignment_write",
 ]

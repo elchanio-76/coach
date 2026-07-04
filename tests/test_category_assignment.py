@@ -18,6 +18,7 @@ from coach_truecoach.ai.category_assignment import (
     CategoryAssignmentProposal,
     CategoryAssignmentRunSummary,
     CategoryOption,
+    archive_category_assignment_run,
     _write_category_assignment_assertion,
     _parse_model_response,
     build_category_assignment_selection_statement,
@@ -83,21 +84,35 @@ class AISettingsTests(unittest.TestCase):
 
 
 class SelectionStatementTests(unittest.TestCase):
-    def test_default_selection_uses_not_exists_for_approved_categories(self) -> None:
+    def test_default_selection_skips_current_pending_and_approved_categories(self) -> None:
         statement = build_category_assignment_selection_statement()
         sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
         self.assertIn("NOT (EXISTS", sql)
-        self.assertIn("workout_item_categories.review_status = 'approved'", sql)
+        self.assertIn("workout_item_categories.review_status IN ('pending', 'approved')", sql)
         self.assertIn("workout_item_categories.is_current IS true", sql)
 
-    def test_explicit_ids_bypass_default_selector(self) -> None:
-        statement = build_category_assignment_selection_statement(workout_item_ids=[11, 22], limit=5)
+    def test_explicit_ids_are_unioned_with_window_filter(self) -> None:
+        statement = build_category_assignment_selection_statement(
+            workout_item_ids=[11, 22],
+            min_workout_item_id=100,
+            max_workout_item_id=200,
+            limit=5,
+        )
         sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
         self.assertIn("workout_items.id IN (11, 22)", sql)
-        self.assertNotIn("NOT (EXISTS", sql)
+        self.assertIn("workout_items.id >= 100", sql)
+        self.assertIn("workout_items.id <= 200", sql)
+        self.assertIn("OR NOT (EXISTS", sql)
         self.assertIn("LIMIT 5", sql)
+
+    def test_explicit_ids_without_window_select_only_explicit_rows(self) -> None:
+        statement = build_category_assignment_selection_statement(workout_item_ids=[11, 22])
+        sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+        self.assertIn("workout_items.id IN (11, 22)", sql)
+        self.assertNotIn("OR NOT (EXISTS", sql)
 
 
 class ResponseValidationTests(unittest.TestCase):
@@ -228,6 +243,7 @@ class DryRunArtifactTests(unittest.TestCase):
             self.assertEqual(summary.total_selected, 1)
             self.assertEqual(summary.success_count, 1)
             self.assertEqual(summary.failure_count, 0)
+            self.assertEqual(summary.output_dir.parent, paths.category_assignment_active_dir)
             manifest = json.loads(summary.manifest_path.read_text(encoding="utf-8"))
             records = [
                 json.loads(line)
@@ -236,10 +252,47 @@ class DryRunArtifactTests(unittest.TestCase):
             ]
 
             self.assertEqual(manifest["total_selected"], 1)
+            self.assertEqual(manifest["selection_mode"], "uncategorized")
             self.assertEqual(records[0]["parse_status"], "ok")
             self.assertEqual(records[0]["proposal"]["category_name"], "Strength")
             self.assertIn("raw_response", records[0])
             self.assertIn("prompt_context", records[0])
+
+    def test_dry_run_manifest_records_window_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = TrueCoachPaths(cache_dir=Path(tmpdir) / "cache")
+            with patch("coach_truecoach.ai.category_assignment._load_categories", return_value=self.categories), patch(
+                "coach_truecoach.ai.category_assignment.select_category_assignment_inputs",
+                return_value=self.items,
+            ), patch.dict(
+                os.environ,
+                {"AI_PROVIDER": "ollama", "MODEL": "llama3.1", "AI_URL": "http://localhost:11434"},
+                clear=False,
+            ):
+                summary = run_category_assignment_dry_run(
+                    session=object(),  # type: ignore[arg-type]
+                    paths=paths,
+                    min_workout_item_id=5,
+                    max_workout_item_id=25,
+                    assigner=_StubAssigner(
+                        {
+                            7: json.dumps(
+                                {
+                                    "workout_item_id": 7,
+                                    "category_id": 1,
+                                    "category_name": "Strength",
+                                    "confidence": 0.91,
+                                    "rationale": "Primary demand is heavy strength work.",
+                                }
+                            )
+                        }
+                    ),
+                )
+
+            manifest = json.loads(summary.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["selection_mode"], "window")
+            self.assertEqual(manifest["filters"]["min_workout_item_id"], 5)
+            self.assertEqual(manifest["filters"]["max_workout_item_id"], 25)
 
     def test_dry_run_keeps_raw_response_on_parse_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -436,9 +489,64 @@ class WriteRunTests(unittest.TestCase):
             self.assertEqual(manifest["mode"], "write")
             self.assertEqual(manifest["inserted_count"], 1)
             self.assertEqual(records[0]["db_write_status"], "inserted")
+            self.assertEqual(summary.output_dir.parent, paths.category_assignment_active_dir)
+
+
+class ArchiveRunTests(unittest.TestCase):
+    def test_archive_run_moves_directory_to_archived_area(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = TrueCoachPaths(cache_dir=Path(tmpdir) / "cache")
+            paths.ensure()
+            run_dir = paths.category_assignment_active_dir / "20260704T000000Z"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = run_dir / "manifest.json"
+            manifest_path.write_text("{}", encoding="utf-8")
+
+            archived_dir = archive_category_assignment_run(paths=paths, run_dir=run_dir)
+
+            self.assertFalse(run_dir.exists())
+            self.assertEqual(archived_dir.parent, paths.category_assignment_archived_dir)
+            self.assertTrue((archived_dir / "manifest.json").exists())
 
 
 class CliSmokeTests(unittest.TestCase):
+    def test_cli_dry_run_passes_window_options(self) -> None:
+        summary = CategoryAssignmentRunSummary(
+            output_dir=Path("/tmp/output"),
+            total_selected=2,
+            success_count=1,
+            failure_count=1,
+            manifest_path=Path("/tmp/output/manifest.json"),
+            proposals_path=Path("/tmp/output/proposals.jsonl"),
+        )
+
+        @contextlib.contextmanager
+        def _fake_session_scope(engine: object):
+            yield object()
+
+        stdout = io.StringIO()
+        with patch("coach_truecoach.cli.create_engine", return_value=object()), patch(
+            "coach_truecoach.cli.session_scope",
+            side_effect=_fake_session_scope,
+        ), patch(
+            "coach_truecoach.cli.run_category_assignment_dry_run",
+            return_value=summary,
+        ) as run_mock, patch(
+            "sys.argv",
+            [
+                "coach",
+                "ai-category-assignment-dry-run",
+                "--min-workout-item-id",
+                "10",
+                "--max-workout-item-id",
+                "20",
+            ],
+        ), patch("sys.stdout", stdout):
+            main()
+
+        self.assertEqual(run_mock.call_args.kwargs["min_workout_item_id"], 10)
+        self.assertEqual(run_mock.call_args.kwargs["max_workout_item_id"], 20)
+
     def test_cli_dry_run_prints_summary(self) -> None:
         summary = CategoryAssignmentRunSummary(
             output_dir=Path("/tmp/output"),
@@ -504,6 +612,21 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("Selected workout items: 2", output)
         self.assertIn("Inserted assertions: 2", output)
         self.assertIn("Unchanged assertions: 0", output)
+
+    def test_cli_archive_run_prints_destination(self) -> None:
+        stdout = io.StringIO()
+        archived_dir = Path("/tmp/output/archived/run-1")
+        with patch(
+            "coach_truecoach.cli.archive_category_assignment_run",
+            return_value=archived_dir,
+        ), patch(
+            "sys.argv",
+            ["coach", "ai-category-assignment-archive-run", "--run-dir", "/tmp/output/active/run-1"],
+        ), patch("sys.stdout", stdout):
+            main()
+
+        output = stdout.getvalue()
+        self.assertIn("Archived run: /tmp/output/archived/run-1", output)
 
 
 if __name__ == "__main__":
