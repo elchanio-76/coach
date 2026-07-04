@@ -8,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 from . import api
+from .ai import run_category_assignment_dry_run
 from . import browser
 from .db import create_engine, import_parsed_data, seed_workout_categories, session_scope
 from . import parser as workout_parser
@@ -95,6 +96,34 @@ def main() -> None:
         type=Path,
         default=Path("data/cache/truecoach/parsed"),
         help="Directory containing parsed JSONL files",
+    )
+
+    category_dry_run_parser = subparsers.add_parser(
+        "ai-category-assignment-dry-run",
+        help="Generate dry-run category proposals for workout items without writing DB assertions",
+    )
+    category_dry_run_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing AI dry-run artifacts",
+    )
+    category_dry_run_parser.add_argument("--provider", default=None, help="AI provider override: ollama or openai")
+    category_dry_run_parser.add_argument("--model", default=None, help="AI model override")
+    category_dry_run_parser.add_argument("--url", default=None, help="AI endpoint override")
+    category_dry_run_parser.add_argument("--limit", type=int, default=None, help="Maximum number of workout items")
+    category_dry_run_parser.add_argument(
+        "--workout-item-id",
+        type=int,
+        action="append",
+        default=None,
+        help="Workout item ID to classify. May be passed more than once.",
+    )
+    category_dry_run_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output directory for manifest.json and proposals.jsonl",
     )
 
     args = parser.parse_args()
@@ -185,6 +214,24 @@ def main() -> None:
             print(f"Imported exercises: {summary.exercises}")
             print(f"Imported exercise source aliases: {summary.exercise_source_aliases}")
             print(f"Imported workout item exercises: {summary.workout_item_exercises}")
+        elif args.command == "ai-category-assignment-dry-run":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                summary = run_category_assignment_dry_run(
+                    session,
+                    paths=paths,
+                    provider=args.provider,
+                    model=args.model,
+                    url=args.url,
+                    limit=args.limit,
+                    workout_item_ids=args.workout_item_id,
+                    output_dir=args.output,
+                )
+            print(f"Selected workout items: {summary.total_selected}")
+            print(f"Successful proposals: {summary.success_count}")
+            print(f"Failed proposals: {summary.failure_count}")
+            print(f"Manifest: {summary.manifest_path}")
+            print(f"Proposals: {summary.proposals_path}")
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

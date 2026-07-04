@@ -18,7 +18,7 @@ Persistence layer: Postgres + local file cache where simpler
 
 ## Current Status
 
-Current branch: `database-schema`.
+Current branch: `category-assignment`.
 
 The project has a working TrueCoach navigation, extraction, and database bootstrap scaffold:
 
@@ -51,6 +51,7 @@ Implemented CLI commands:
 .venv/bin/coach db-seed-categories
 .venv/bin/coach db-import-parsed
 .venv/bin/coach db-bootstrap
+.venv/bin/coach ai-category-assignment-dry-run --limit 10
 ```
 
 Local artifacts:
@@ -64,6 +65,7 @@ data/cache/truecoach/
   network/
   api/
   parsed/
+  ai/
 ```
 
 Parser status:
@@ -97,6 +99,7 @@ Database status:
 - Rejected and superseded AI assertions must remain stored for audit, few-shot examples, and future training data.
 - Category seed import from `workout_categories.json` is implemented.
 - Parsed raw import from `data/cache/truecoach/parsed/` is implemented.
+- AI category assignment dry-run is implemented with AWS Strands agents.
 - `DBURL` is read from `.env`; Postgres URLs are normalized to `postgresql+psycopg` at runtime when needed.
 
 Latest verified local bootstrap run:
@@ -113,6 +116,8 @@ Known implementation details:
 
 - The importer currently reads parsed seed files from `data/cache/truecoach/parsed/`.
 - The current verified parsed dataset spans `workouts-client-1172649-page-1.json` and `workouts-client-1172649-page-2.json`.
+- AI category assignment dry-run reads from Postgres, selects workout items with no current approved category by default, and writes run artifacts under `data/cache/truecoach/ai/category_assignment/`.
+- AI routing is configured with `AI_PROVIDER`, `MODEL`, and `AI_URL`; `OPENAI_API_KEY` is required only when `AI_PROVIDER=openai`.
 - AI enrichment tables exist, but no AI write/review workflow is implemented yet.
 - The importer now resolves source exercise IDs through `exercise_source_aliases` instead of `exercises.tc_exercise_id`.
 - Multiple TrueCoach exercise IDs can map to one canonical exercise through `exercise_source_aliases`.

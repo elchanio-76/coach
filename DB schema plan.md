@@ -12,12 +12,15 @@ Implemented:
 - Parsed raw import from `data/cache/truecoach/parsed/`.
 - Category seed import from `workout_categories.json`.
 - TrueCoach exercise mapping import into `exercises`, `exercise_source_aliases`, and `workout_item_exercises`.
+- AI category assignment dry-run from Postgres to JSONL artifacts using AWS Strands with provider-swappable model config.
 - `workout_items.exercise_id` convenience FK alongside the authoritative many-to-many table.
 - Incremental import verified by fetching and importing page 2 from the TrueCoach workouts endpoint.
 
 Not implemented yet:
 
-- AI exercise/category/metric proposal workflows.
+- AI exercise mapping proposals.
+- AI category proposal DB writes into `workout_item_categories`.
+- AI metric extraction proposals.
 - Review/approval UI or workflow for enrichment assertions.
 - Source deletion detection during sync.
 
@@ -29,6 +32,8 @@ Current implementation choices:
 - `workout_item_metrics.metric_type` uses a shared constrained vocabulary and should be extended deliberately over time.
 - Source-system exercise identity is resolved through `exercise_source_aliases`; `exercises.tc_exercise_id` has been retired.
 - Multiple TrueCoach exercise IDs can resolve to one canonical exercise through `exercise_source_aliases`.
+- AI category assignment dry-run uses `AI_PROVIDER`, `MODEL`, and `AI_URL`, with `OPENAI_API_KEY` only when the provider is OpenAI.
+- AI category assignment dry-run selects workout items with no current approved category by default and writes artifacts under `data/cache/truecoach/ai/category_assignment/`.
 
 Latest verified parsed/imported dataset:
 
@@ -349,7 +354,8 @@ Current implementation status:
 - `Raw Workout Import`: implemented
 - `Seed Category Import`: implemented
 - `Seed Exercise Import`: implemented through canonical exercise upserts, `exercise_source_aliases`, and `workout_item_exercises`
-- AI augmentation and review flows below: not implemented yet
+- `AI Category Dry Run`: implemented as `coach ai-category-assignment-dry-run`
+- AI proposal DB writes and review flows below: not implemented yet
 
 ### Raw Workout Import
 
@@ -414,6 +420,13 @@ For each workout item with no approved current category:
 1. Read the full workout item context.
 2. Propose one or more workout item categories.
 3. Insert `workout_item_categories` assertions as pending versioned rows.
+
+Current status:
+
+- Dry-run classification is implemented for one primary category per workout item.
+- Current command: `.venv/bin/coach ai-category-assignment-dry-run --limit 10`
+- Current output: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/category_assignment/`
+- Current implementation does not write `workout_item_categories` rows yet.
 
 ### Metrics Agent
 
