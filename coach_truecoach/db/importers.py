@@ -8,14 +8,23 @@ from typing import Any
 
 from sqlalchemy import Select, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from .models import Exercise, ExerciseSourceAlias, Workout, WorkoutCategory, WorkoutItem, WorkoutItemAttachment, WorkoutItemExercise
+from .models import (
+    Exercise,
+    ExerciseAbbreviation,
+    ExerciseSourceAlias,
+    Workout,
+    WorkoutCategory,
+    WorkoutItem,
+    WorkoutItemAttachment,
+    WorkoutItemExercise,
+)
 
 
 DEFAULT_PARSED_DIR = Path("data/cache/truecoach/parsed")
 DEFAULT_CATEGORIES_FILE = Path("workout_categories.json")
+DEFAULT_ABBREVIATIONS_FILE = Path("exercise_abbreviations.json")
 
 
 @dataclass(frozen=True)
@@ -59,6 +68,58 @@ def seed_workout_categories(
             existing.color_code = _optional_text(category.get("color_code"))
         inserted += 1
     return inserted
+
+
+def seed_exercise_abbreviations(
+    session: Session,
+    abbreviations_file: Path = DEFAULT_ABBREVIATIONS_FILE,
+) -> int:
+    payload = json.loads(abbreviations_file.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Expected abbreviation object in {abbreviations_file}")
+
+    upserted = 0
+    for abbreviation, expansion in payload.items():
+        abbreviation_text = str(abbreviation).strip()
+        expansion_text = str(expansion).strip()
+        if not abbreviation_text or not expansion_text:
+            continue
+        existing = session.execute(
+            select(ExerciseAbbreviation).where(
+                ExerciseAbbreviation.abbreviation.ilike(abbreviation_text),
+                ExerciseAbbreviation.is_active.is_(True),
+                ExerciseAbbreviation.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            session.add(
+                ExerciseAbbreviation(
+                    abbreviation=abbreviation_text,
+                    expansion=expansion_text,
+                    source="user",
+                    is_active=True,
+                )
+            )
+        else:
+            existing.abbreviation = abbreviation_text
+            existing.expansion = expansion_text
+            existing.source = "user"
+        upserted += 1
+    return upserted
+
+
+def load_active_exercise_abbreviations(session: Session) -> dict[str, str]:
+    rows = (
+        session.execute(
+            select(ExerciseAbbreviation).where(
+                ExerciseAbbreviation.is_active.is_(True),
+                ExerciseAbbreviation.deleted_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {row.abbreviation.strip().casefold(): row.expansion.strip() for row in rows}
 
 
 def import_parsed_data(

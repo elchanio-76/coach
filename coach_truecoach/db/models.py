@@ -120,6 +120,47 @@ class ExerciseSourceAlias(TimestampMixin, UUIDMixin, Base):
     source_name: Mapped[str | None] = mapped_column(Text)
 
 
+class ExerciseAbbreviation(TimestampMixin, UUIDMixin, Base):
+    __tablename__ = "exercise_abbreviations"
+    __table_args__ = (
+        CheckConstraint(f"source IN {SOURCE_VALUES}", name="ck_exercise_abbreviations_source"),
+        Index(
+            "ix_exercise_abbreviations_abbreviation_current",
+            func.lower(func.btrim(text("abbreviation"))),
+            unique=True,
+            postgresql_where=text("is_active = true AND deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    abbreviation: Mapped[str] = mapped_column(Text, nullable=False)
+    expansion: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+
+class ExerciseNameAlias(ReviewMixin, Base):
+    __tablename__ = "exercise_name_aliases"
+    __table_args__ = (
+        CheckConstraint(f"source IN {SOURCE_VALUES}", name="ck_exercise_name_aliases_source"),
+        CheckConstraint(f"review_status IN {REVIEW_STATUS_VALUES}", name="ck_exercise_name_aliases_review_status"),
+        Index("ix_exercise_name_aliases_exercise_id", "exercise_id"),
+        Index(
+            "ix_exercise_name_aliases_alias_current",
+            func.lower(func.btrim(text("alias"))),
+            unique=True,
+            postgresql_where=text(
+                "is_current = true AND review_status IN ('pending', 'approved') AND deleted_at IS NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    alias: Mapped[str] = mapped_column(Text, nullable=False)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("exercise_name_aliases.id"))
+
+
 class WorkoutCategory(TimestampMixin, UUIDMixin, Base):
     __tablename__ = "workout_categories"
     __table_args__ = (

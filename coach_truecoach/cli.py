@@ -8,9 +8,16 @@ from alembic import command
 from alembic.config import Config
 
 from . import api
-from .ai import archive_category_assignment_run, run_category_assignment_dry_run, run_category_assignment_write
+from .ai import (
+    archive_category_assignment_run,
+    archive_exercise_mapping_run,
+    run_category_assignment_dry_run,
+    run_category_assignment_write,
+    run_exercise_mapping_dry_run,
+    run_exercise_mapping_write,
+)
 from . import browser
-from .db import create_engine, import_parsed_data, seed_workout_categories, session_scope
+from .db import create_engine, import_parsed_data, seed_exercise_abbreviations, seed_workout_categories, session_scope
 from . import parser as workout_parser
 from .config import DEFAULT_BASE_URL, TrueCoachPaths
 
@@ -76,6 +83,17 @@ def main() -> None:
         help="Path to category seed JSON",
     )
 
+    seed_abbreviations_parser = subparsers.add_parser(
+        "db-seed-exercise-abbreviations",
+        help="Seed exercise abbreviations",
+    )
+    seed_abbreviations_parser.add_argument(
+        "--abbreviations-file",
+        type=Path,
+        default=Path("exercise_abbreviations.json"),
+        help="Path to exercise abbreviation JSON",
+    )
+
     import_parsed_parser = subparsers.add_parser("db-import-parsed", help="Import parsed TrueCoach data into Postgres")
     import_parsed_parser.add_argument(
         "--parsed-dir",
@@ -90,6 +108,12 @@ def main() -> None:
         type=Path,
         default=Path("workout_categories.json"),
         help="Path to category seed JSON",
+    )
+    bootstrap_parser.add_argument(
+        "--abbreviations-file",
+        type=Path,
+        default=Path("exercise_abbreviations.json"),
+        help="Path to exercise abbreviation JSON",
     )
     bootstrap_parser.add_argument(
         "--parsed-dir",
@@ -153,6 +177,67 @@ def main() -> None:
         help="Directory containing AI run artifacts",
     )
     category_archive_parser.add_argument(
+        "--run-dir",
+        type=Path,
+        required=True,
+        help="Run directory to archive",
+    )
+
+    exercise_dry_run_parser = subparsers.add_parser(
+        "ai-exercise-mapping-dry-run",
+        help="Generate dry-run exercise proposals for workout items without writing DB assertions",
+    )
+    exercise_dry_run_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing AI dry-run artifacts",
+    )
+    exercise_dry_run_parser.add_argument("--provider", default=None, help="AI provider override: ollama or openai")
+    exercise_dry_run_parser.add_argument("--model", default=None, help="AI model override")
+    exercise_dry_run_parser.add_argument("--url", default=None, help="AI endpoint override")
+    exercise_dry_run_parser.add_argument("--limit", type=int, default=None, help="Maximum number of workout items")
+    _add_category_selection_options(exercise_dry_run_parser)
+    exercise_dry_run_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output directory for manifest.json and proposals.jsonl",
+    )
+
+    exercise_write_parser = subparsers.add_parser(
+        "ai-exercise-mapping-write",
+        help="Generate exercise proposals and write pending AI assertions to the database",
+    )
+    exercise_write_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing AI run artifacts",
+    )
+    exercise_write_parser.add_argument("--provider", default=None, help="AI provider override: ollama or openai")
+    exercise_write_parser.add_argument("--model", default=None, help="AI model override")
+    exercise_write_parser.add_argument("--url", default=None, help="AI endpoint override")
+    exercise_write_parser.add_argument("--limit", type=int, default=None, help="Maximum number of workout items")
+    _add_category_selection_options(exercise_write_parser)
+    exercise_write_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output directory for manifest.json and proposals.jsonl",
+    )
+
+    exercise_archive_parser = subparsers.add_parser(
+        "ai-exercise-mapping-archive-run",
+        help="Move a completed exercise-mapping run directory into the archived artifact area",
+    )
+    exercise_archive_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing AI run artifacts",
+    )
+    exercise_archive_parser.add_argument(
         "--run-dir",
         type=Path,
         required=True,
@@ -224,6 +309,11 @@ def main() -> None:
             with session_scope(engine) as session:
                 count = seed_workout_categories(session, args.categories_file)
             print(f"Seeded workout categories: {count}")
+        elif args.command == "db-seed-exercise-abbreviations":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                count = seed_exercise_abbreviations(session, args.abbreviations_file)
+            print(f"Seeded exercise abbreviations: {count}")
         elif args.command == "db-import-parsed":
             engine = create_engine()
             with session_scope(engine) as session:
@@ -239,8 +329,10 @@ def main() -> None:
             engine = create_engine()
             with session_scope(engine) as session:
                 categories = seed_workout_categories(session, args.categories_file)
+                abbreviations = seed_exercise_abbreviations(session, args.abbreviations_file)
                 summary = import_parsed_data(session, args.parsed_dir)
             print(f"Seeded workout categories: {categories}")
+            print(f"Seeded exercise abbreviations: {abbreviations}")
             print(f"Imported workouts: {summary.workouts}")
             print(f"Imported workout items: {summary.workout_items}")
             print(f"Imported attachments: {summary.attachments}")
@@ -291,6 +383,56 @@ def main() -> None:
             print(f"Proposals: {summary.proposals_path}")
         elif args.command == "ai-category-assignment-archive-run":
             archived_path = archive_category_assignment_run(
+                paths=paths,
+                run_dir=args.run_dir,
+            )
+            print(f"Archived run: {archived_path}")
+        elif args.command == "ai-exercise-mapping-dry-run":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                summary = run_exercise_mapping_dry_run(
+                    session,
+                    paths=paths,
+                    provider=args.provider,
+                    model=args.model,
+                    url=args.url,
+                    limit=args.limit,
+                    workout_item_ids=args.workout_item_id,
+                    min_workout_item_id=args.min_workout_item_id,
+                    max_workout_item_id=args.max_workout_item_id,
+                    output_dir=args.output,
+                )
+            print(f"Selected workout items: {summary.total_selected}")
+            print(f"Successful proposals: {summary.success_count}")
+            print(f"Failed proposals: {summary.failure_count}")
+            print(f"Manifest: {summary.manifest_path}")
+            print(f"Proposals: {summary.proposals_path}")
+        elif args.command == "ai-exercise-mapping-write":
+            engine = create_engine()
+            with session_scope(engine) as session:
+                summary = run_exercise_mapping_write(
+                    session,
+                    paths=paths,
+                    provider=args.provider,
+                    model=args.model,
+                    url=args.url,
+                    limit=args.limit,
+                    workout_item_ids=args.workout_item_id,
+                    min_workout_item_id=args.min_workout_item_id,
+                    max_workout_item_id=args.max_workout_item_id,
+                    output_dir=args.output,
+                )
+            print(f"Selected workout items: {summary.total_selected}")
+            print(f"Successful proposals: {summary.success_count}")
+            print(f"Failed proposals: {summary.failure_count}")
+            print(f"Inserted assertions: {summary.inserted_count}")
+            print(f"Unchanged assertions: {summary.unchanged_count}")
+            print(f"Created exercises: {summary.created_exercise_count}")
+            print(f"Inserted aliases: {summary.alias_inserted_count}")
+            print(f"Manifest: {summary.manifest_path}")
+            print(f"Proposals: {summary.proposals_path}")
+        elif args.command == "ai-exercise-mapping-archive-run":
+            archived_path = archive_exercise_mapping_run(
                 paths=paths,
                 run_dir=args.run_dir,
             )

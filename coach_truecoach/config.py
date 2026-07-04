@@ -56,6 +56,18 @@ class TrueCoachPaths:
     def category_assignment_archived_dir(self) -> Path:
         return self.category_assignment_dir / "archived"
 
+    @property
+    def exercise_mapping_dir(self) -> Path:
+        return self.ai_dir / "exercise_mapping"
+
+    @property
+    def exercise_mapping_active_dir(self) -> Path:
+        return self.exercise_mapping_dir / "active"
+
+    @property
+    def exercise_mapping_archived_dir(self) -> Path:
+        return self.exercise_mapping_dir / "archived"
+
     def ensure(self) -> None:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir.mkdir(parents=True, exist_ok=True)
@@ -65,3 +77,5 @@ class TrueCoachPaths:
         self.parsed_dir.mkdir(parents=True, exist_ok=True)
         self.category_assignment_active_dir.mkdir(parents=True, exist_ok=True)
         self.category_assignment_archived_dir.mkdir(parents=True, exist_ok=True)
+        self.exercise_mapping_active_dir.mkdir(parents=True, exist_ok=True)
+        self.exercise_mapping_archived_dir.mkdir(parents=True, exist_ok=True)
