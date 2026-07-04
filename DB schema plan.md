@@ -426,9 +426,15 @@ Current status:
 
 - Dry-run classification is implemented for one primary category per workout item.
 - Write command: `.venv/bin/coach ai-category-assignment-write --limit 10`
-- Run artifacts: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/category_assignment/`
+- Run artifacts: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/category_assignment/active/`
 - Successful write runs insert `workout_item_categories` rows with `source = 'ai'`, `review_status = 'pending'`, and `is_current = true`.
 - Reruns skip identical current pending assertions and supersede older current pending AI assertions for the same workout item when the proposal changes.
+- Default selection skips workout items that already have a current pending or approved category assertion.
+- Selection windows based on local `workout_items.id` are supported so category runs can target bounded ID ranges instead of relying only on `--limit`.
+- Explicit include support is available for one-off rechecks, so already-reviewed or out-of-window items can still be forced into a run intentionally.
+- `workout_items.id` is the primary batching key because it is assigned during parsed import and is stable for local review workflows.
+- Reviewed or completed category batches can be moved from the active artifact directory into `data/cache/truecoach/ai/category_assignment/archived/`.
+- The DB filter and the artifact partition work together: the DB range controls what is eligible for a run, and the directory split provides an operational safeguard and audit trail for what has already been processed.
 
 ### Metrics Agent
 

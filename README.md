@@ -100,12 +100,26 @@ Generate dry-run category proposals for uncategorized workout items:
 .venv/bin/coach ai-category-assignment-dry-run --limit 10
 ```
 
-Artifacts are written under `data/cache/truecoach/ai/category_assignment/`.
+By default, selection skips workout items that already have a current pending or approved category assertion.
+Use a bounded local ID window to process records in batches:
+
+```bash
+.venv/bin/coach ai-category-assignment-dry-run --min-workout-item-id 1 --max-workout-item-id 25
+```
+
+Use `--workout-item-id` one or more times to force explicit rechecks, including IDs outside the current window.
 
 Write pending AI category assertions to Postgres:
 
 ```bash
-.venv/bin/coach ai-category-assignment-write --limit 10
+.venv/bin/coach ai-category-assignment-write --min-workout-item-id 1 --max-workout-item-id 25
+```
+
+Default run artifacts are written under `data/cache/truecoach/ai/category_assignment/active/`.
+Archive a reviewed batch when you are done with it:
+
+```bash
+.venv/bin/coach ai-category-assignment-archive-run --run-dir data/cache/truecoach/ai/category_assignment/active/20260704T000000Z
 ```
 
 Reruns are idempotent for identical current pending assertions and supersede older current pending AI assertions when the proposal changes.

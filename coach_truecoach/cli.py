@@ -8,7 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 from . import api
-from .ai import run_category_assignment_dry_run, run_category_assignment_write
+from .ai import archive_category_assignment_run, run_category_assignment_dry_run, run_category_assignment_write
 from . import browser
 from .db import create_engine, import_parsed_data, seed_workout_categories, session_scope
 from . import parser as workout_parser
@@ -112,13 +112,7 @@ def main() -> None:
     category_dry_run_parser.add_argument("--model", default=None, help="AI model override")
     category_dry_run_parser.add_argument("--url", default=None, help="AI endpoint override")
     category_dry_run_parser.add_argument("--limit", type=int, default=None, help="Maximum number of workout items")
-    category_dry_run_parser.add_argument(
-        "--workout-item-id",
-        type=int,
-        action="append",
-        default=None,
-        help="Workout item ID to classify. May be passed more than once.",
-    )
+    _add_category_selection_options(category_dry_run_parser)
     category_dry_run_parser.add_argument(
         "--output",
         type=Path,
@@ -140,18 +134,29 @@ def main() -> None:
     category_write_parser.add_argument("--model", default=None, help="AI model override")
     category_write_parser.add_argument("--url", default=None, help="AI endpoint override")
     category_write_parser.add_argument("--limit", type=int, default=None, help="Maximum number of workout items")
-    category_write_parser.add_argument(
-        "--workout-item-id",
-        type=int,
-        action="append",
-        default=None,
-        help="Workout item ID to classify. May be passed more than once.",
-    )
+    _add_category_selection_options(category_write_parser)
     category_write_parser.add_argument(
         "--output",
         type=Path,
         default=None,
         help="Output directory for manifest.json and proposals.jsonl",
+    )
+
+    category_archive_parser = subparsers.add_parser(
+        "ai-category-assignment-archive-run",
+        help="Move a completed category-assignment run directory into the archived artifact area",
+    )
+    category_archive_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache/truecoach"),
+        help="Directory containing AI run artifacts",
+    )
+    category_archive_parser.add_argument(
+        "--run-dir",
+        type=Path,
+        required=True,
+        help="Run directory to archive",
     )
 
     args = parser.parse_args()
@@ -253,6 +258,8 @@ def main() -> None:
                     url=args.url,
                     limit=args.limit,
                     workout_item_ids=args.workout_item_id,
+                    min_workout_item_id=args.min_workout_item_id,
+                    max_workout_item_id=args.max_workout_item_id,
                     output_dir=args.output,
                 )
             print(f"Selected workout items: {summary.total_selected}")
@@ -271,6 +278,8 @@ def main() -> None:
                     url=args.url,
                     limit=args.limit,
                     workout_item_ids=args.workout_item_id,
+                    min_workout_item_id=args.min_workout_item_id,
+                    max_workout_item_id=args.max_workout_item_id,
                     output_dir=args.output,
                 )
             print(f"Selected workout items: {summary.total_selected}")
@@ -280,6 +289,12 @@ def main() -> None:
             print(f"Unchanged assertions: {summary.unchanged_count}")
             print(f"Manifest: {summary.manifest_path}")
             print(f"Proposals: {summary.proposals_path}")
+        elif args.command == "ai-category-assignment-archive-run":
+            archived_path = archive_category_assignment_run(
+                paths=paths,
+                run_dir=args.run_dir,
+            )
+            print(f"Archived run: {archived_path}")
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -297,6 +312,28 @@ def _add_common_options(parser: argparse.ArgumentParser, *, default_headless: bo
     headless_group = parser.add_mutually_exclusive_group()
     headless_group.add_argument("--headless", action="store_true", default=default_headless)
     headless_group.add_argument("--headed", action="store_false", dest="headless")
+
+
+def _add_category_selection_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--workout-item-id",
+        type=int,
+        action="append",
+        default=None,
+        help="Workout item ID to classify explicitly. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--min-workout-item-id",
+        type=int,
+        default=None,
+        help="Lower bound for the local workout_items.id selection window.",
+    )
+    parser.add_argument(
+        "--max-workout-item-id",
+        type=int,
+        default=None,
+        help="Upper bound for the local workout_items.id selection window.",
+    )
 
 
 def _run_db_upgrade(revision: str) -> None:
