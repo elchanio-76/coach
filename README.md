@@ -5,9 +5,10 @@ Tools for collecting and analyzing personal training data.
 ## Status
 
 - TrueCoach login, authenticated API fetch, and parsed JSONL export are implemented.
-- Postgres schema creation, category seeding, and parsed data import are implemented.
+- Postgres schema creation, category/abbreviation seeding, and parsed data import are implemented.
 - AI category assignment dry-run and pending DB writes are implemented.
-- AI exercise mapping, metric extraction, and review workflows are not implemented yet.
+- AI exercise mapping dry-run and pending DB writes are implemented.
+- AI metric extraction and review workflows are not implemented yet.
 
 ## TrueCoach Navigation
 
@@ -57,6 +58,12 @@ Seed categories from `workout_categories.json`:
 .venv/bin/coach db-seed-categories
 ```
 
+Seed exercise abbreviations from `exercise_abbreviations.json`:
+
+```bash
+.venv/bin/coach db-seed-exercise-abbreviations
+```
+
 Import parsed TrueCoach data:
 
 ```bash
@@ -71,6 +78,7 @@ Run the full setup in one step:
 
 The importer reads parsed seed data from `data/cache/truecoach/parsed/`.
 The current category seed file is `workout_categories.json`.
+The current abbreviation seed file is `exercise_abbreviations.json`.
 Database imports are designed to be rerun safely through upsert-style behavior.
 
 Latest verified parsed/imported dataset:
@@ -93,6 +101,7 @@ AI_URL="http://localhost:11434"
 ```
 
 Use `OPENAI_API_KEY` when `AI_PROVIDER="openai"`.
+For Ollama, set the model context length high enough for long workout descriptions. A context length of `16000` tokens is the current working setting; the default `4096` can fail when prompt plus response exceeds the limit.
 
 Generate dry-run category proposals for uncategorized workout items:
 
@@ -123,6 +132,46 @@ Archive a reviewed batch when you are done with it:
 ```
 
 Reruns are idempotent for identical current pending assertions and supersede older current pending AI assertions when the proposal changes.
+
+## AI Exercise Mapping
+
+Exercise mapping uses the same AI routing variables as category assignment:
+
+```bash
+AI_PROVIDER="ollama"
+MODEL="gemma4:12b"
+AI_URL="http://localhost:11434"
+```
+
+For Ollama, configure the selected model or runner with a context length of at least `16000` tokens. Some workout items include long descriptions and candidate context, and the default `4096` context can produce token-limit failures.
+
+Seed abbreviations before running the mapper:
+
+```bash
+.venv/bin/coach db-seed-exercise-abbreviations
+```
+
+Generate dry-run exercise proposals:
+
+```bash
+.venv/bin/coach ai-exercise-mapping-dry-run --limit 10
+```
+
+Write pending AI exercise assertions to Postgres:
+
+```bash
+.venv/bin/coach ai-exercise-mapping-write --min-workout-item-id 1 --max-workout-item-id 25
+```
+
+By default, selection skips workout items that already have a current pending or approved AI exercise assertion. Existing TrueCoach exercise mappings are included as context but do not block processing, so the mapper can add missing movements from free-form workout text.
+
+The mapper can create pending canonical `exercises` rows for newly identified movements and pending `exercise_name_aliases` rows for synonym judgments. Run artifacts are written under `data/cache/truecoach/ai/exercise_mapping/active/`.
+
+Archive a reviewed batch when you are done with it:
+
+```bash
+.venv/bin/coach ai-exercise-mapping-archive-run --run-dir data/cache/truecoach/ai/exercise_mapping/active/20260704T000000Z
+```
 
 ## End-to-End Workflow
 

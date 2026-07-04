@@ -403,16 +403,30 @@ Steps:
 
 ## AI Augmentation Operations
 
-Partially implemented. Category assignment writes are now wired; the remaining sections describe the next phase after the DB foundation.
+Partially implemented. Category assignment and exercise mapping writes are now wired; metrics extraction and review tooling remain future work.
 
 ### Exercise Mapping Agent
 
-For each workout item with no approved current exercise mapping:
+For each workout item with no current pending or approved AI exercise mapping:
 
-1. Read `name_raw`, `info_raw`, `result_raw`, surrounding workout date/state, and existing exercises.
+1. Read `name_raw`, `info_raw`, `result_raw`, surrounding workout date/state, existing item exercise mappings, abbreviation expansions, and lexical canonical exercise candidates.
 2. Propose zero or more canonical exercises.
 3. If no match exists, propose a new exercise with `review_status = 'pending'`.
 4. Insert `workout_item_exercises` assertions with `source = 'ai'`, confidence, rationale, model metadata, and `review_status = 'pending'`.
+
+Current status:
+
+- Abbreviations are seeded from `exercise_abbreviations.json` into `exercise_abbreviations`.
+- Exercise-name synonyms are stored in reviewable `exercise_name_aliases`; `exercise_source_aliases` remains reserved for external source-system exercise IDs.
+- Matching is lexical in v1: normalized exact names, abbreviation-expanded text, alias matches, substring matches, and token overlap produce candidates for the agent. No pgvector or embedding workflow is implemented.
+- Write command: `.venv/bin/coach ai-exercise-mapping-write --limit 10`
+- Run artifacts: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/exercise_mapping/active/`
+- Successful write runs insert pending `workout_item_exercises` rows and can create pending canonical `exercises` rows for new movements.
+- Default selection skips items that already have current pending or approved AI exercise assertions, but TrueCoach mappings do not block processing.
+- Existing TrueCoach/user/system exercise mappings are treated as satisfied links and are not duplicated as AI rows.
+- Reruns skip identical current pending AI assertions and supersede older current pending AI assertions when the proposal changes.
+- Model positions are stored one-based; zero-based model responses are normalized to JSON list order.
+- For Ollama runs, configure the selected model or runner with a context length of at least `16000` tokens. The default `4096` can be too small for long workout item prompts plus model output.
 
 ### Category Agent
 

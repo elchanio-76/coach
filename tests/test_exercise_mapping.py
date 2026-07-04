@@ -146,6 +146,39 @@ class ResponseValidationTests(unittest.TestCase):
                 expected_workout_item_id=7,
             )
 
+    def test_parse_model_response_converts_zero_based_positions_to_list_order(self) -> None:
+        proposal = _parse_model_response(
+            json.dumps(
+                {
+                    "workout_item_id": 7,
+                    "exercises": [
+                        {
+                            "position": 0,
+                            "source_phrase": "6 weighted chin ups",
+                            "canonical_exercise_id": None,
+                            "canonical_name": "Weighted chin-up",
+                            "match_type": "new",
+                            "confidence": 1.0,
+                            "rationale": "Distinct weighted chin-up movement.",
+                        },
+                        {
+                            "position": 1,
+                            "source_phrase": "6 bent over reverse flies",
+                            "canonical_exercise_id": None,
+                            "canonical_name": "Bent over reverse fly",
+                            "match_type": "new",
+                            "confidence": 1.0,
+                            "rationale": "Distinct reverse fly movement.",
+                        },
+                    ],
+                }
+            ),
+            self.item,
+            expected_workout_item_id=7,
+        )
+
+        self.assertEqual([exercise.position for exercise in proposal.exercises], [1, 2])
+
     def test_parse_model_response_rejects_malformed_payload(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "valid JSON"):
             _parse_model_response("not json", self.item, expected_workout_item_id=7)

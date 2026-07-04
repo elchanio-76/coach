@@ -147,6 +147,12 @@ Current verified parsed dataset:
 
 1. Add source deletion detection for syncs instead of only upsert behavior.
 2. Add richer incremental sync and resumability.
-3. Add AI exercise mapping proposals for uncategorized workout items.
-4. Extend AI category assignment workflow with bounded `workout_items.id` selection windows, explicit recheck includes, and reviewed-batch artifact segregation.
-5. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.
+3. Add AI metric extraction proposals from `result_raw` and `info_raw` using the agreed constrained metric vocabulary.
+4. Add review tooling for pending category, exercise, alias, and metric assertions.
+
+Current AI exercise mapping status:
+
+- Exercise mapping dry-run and write commands are implemented.
+- Abbreviations are seeded from `exercise_abbreviations.json`.
+- Run artifacts are written under `data/cache/truecoach/ai/exercise_mapping/active/`.
+- Ollama exercise-mapping runs should use a context length of at least `16000` tokens for long workout-item prompts.

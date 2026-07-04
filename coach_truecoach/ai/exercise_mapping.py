@@ -518,10 +518,15 @@ def _parse_model_response(
     seen_existing_ids: set[int] = set()
     seen_new_names: set[str] = set()
     proposals: list[ProposedExercise] = []
+    zero_based_positions = any(
+        _is_zero_position(raw_exercise.get("position"))
+        for raw_exercise in raw_exercises
+        if isinstance(raw_exercise, dict)
+    )
     for index, raw_exercise in enumerate(raw_exercises, start=1):
         if not isinstance(raw_exercise, dict):
             raise RuntimeError("Each proposed exercise must be an object.")
-        position = _parse_position(raw_exercise.get("position"), index)
+        position = index if zero_based_positions else _parse_position(raw_exercise.get("position"), index)
         source_phrase = str(raw_exercise.get("source_phrase", "")).strip()
         if not source_phrase:
             raise RuntimeError("Proposed exercise source_phrase was empty.")
@@ -859,6 +864,13 @@ def _parse_position(value: Any, fallback: int) -> int:
     if position < 1:
         raise RuntimeError(f"Exercise position must be at least 1: {value!r}")
     return position
+
+
+def _is_zero_position(value: Any) -> bool:
+    try:
+        return int(value) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _parse_confidence(value: Any) -> Decimal:
