@@ -18,11 +18,14 @@ from coach_truecoach.ai.category_assignment import (
     CategoryAssignmentProposal,
     CategoryAssignmentRunSummary,
     CategoryOption,
+    _write_category_assignment_assertion,
     _parse_model_response,
     build_category_assignment_selection_statement,
     load_ai_settings,
     run_category_assignment_dry_run,
+    run_category_assignment_write,
 )
+from coach_truecoach.db.models import WorkoutItemCategory
 from coach_truecoach.cli import main
 from coach_truecoach.config import TrueCoachPaths
 
@@ -267,6 +270,174 @@ class DryRunArtifactTests(unittest.TestCase):
             self.assertIn("error", records[0])
 
 
+class _FakeSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+        self.flush_count = 0
+
+    def add(self, obj: object) -> None:
+        self.added.append(obj)
+
+    def flush(self) -> None:
+        self.flush_count += 1
+        for index, obj in enumerate(self.added, start=1):
+            if getattr(obj, "id", None) is None:
+                obj.id = 1000 + index
+
+
+class WriteAssertionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.settings = load_ai_settings(
+            provider="ollama",
+            model="llama3.1",
+            url="http://localhost:11434",
+        )
+        self.proposal = CategoryAssignmentProposal(
+            workout_item_id=7,
+            category_id=1,
+            category_name="Strength",
+            confidence=Decimal("0.910"),
+            rationale="Primary demand is heavy strength work.",
+        )
+
+    def test_write_assertion_inserts_pending_ai_row(self) -> None:
+        session = _FakeSession()
+        with patch("coach_truecoach.ai.category_assignment._load_current_pending_ai_categories", return_value=[]):
+            status = _write_category_assignment_assertion(session, self.proposal, self.settings)
+
+        self.assertEqual(status, "inserted")
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(len(session.added), 1)
+        row = session.added[0]
+        self.assertIsInstance(row, WorkoutItemCategory)
+        self.assertEqual(row.workout_item_id, 7)
+        self.assertEqual(row.category_id, 1)
+        self.assertEqual(row.source, "ai")
+        self.assertEqual(row.review_status, "pending")
+        self.assertTrue(row.is_current)
+        self.assertEqual(row.model_name, "llama3.1")
+        self.assertEqual(row.model_version, "ollama")
+
+    def test_write_assertion_skips_identical_current_pending_row(self) -> None:
+        existing = WorkoutItemCategory(
+            id=10,
+            workout_item_id=7,
+            category_id=1,
+            source="ai",
+            confidence=Decimal("0.910"),
+            review_status="pending",
+            is_current=True,
+            model_name="llama3.1",
+            model_version="ollama",
+            rationale="Primary demand is heavy strength work.",
+        )
+        session = _FakeSession()
+        with patch("coach_truecoach.ai.category_assignment._load_current_pending_ai_categories", return_value=[existing]):
+            status = _write_category_assignment_assertion(session, self.proposal, self.settings)
+
+        self.assertEqual(status, "unchanged")
+        self.assertEqual(session.flush_count, 0)
+        self.assertEqual(session.added, [])
+        self.assertEqual(existing.review_status, "pending")
+        self.assertTrue(existing.is_current)
+
+    def test_write_assertion_supersedes_old_pending_rows(self) -> None:
+        existing = WorkoutItemCategory(
+            id=10,
+            workout_item_id=7,
+            category_id=2,
+            source="ai",
+            confidence=Decimal("0.700"),
+            review_status="pending",
+            is_current=True,
+            model_name="llama3.1",
+            model_version="ollama",
+            rationale="Previous guess.",
+        )
+        session = _FakeSession()
+        with patch("coach_truecoach.ai.category_assignment._load_current_pending_ai_categories", return_value=[existing]):
+            status = _write_category_assignment_assertion(session, self.proposal, self.settings)
+
+        self.assertEqual(status, "inserted")
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(existing.review_status, "superseded")
+        self.assertFalse(existing.is_current)
+        self.assertEqual(existing.superseded_by_id, session.added[0].id)
+
+
+class WriteRunTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.categories = [
+            CategoryOption(id=1, name="Strength", description="Resistance work", color_code="#fff"),
+        ]
+        self.items = [
+            CategoryAssignmentInput(
+                workout_item_id=7,
+                tc_workout_item_id=700,
+                workout_id=70,
+                workout_due_date="2026-06-01",
+                workout_state="completed",
+                workout_title="Monday",
+                workout_program_name="Cycle A",
+                name_raw="Back squat",
+                name_display="Back squat",
+                info_raw="5x5 heavy",
+                info_display="5x5 heavy",
+                result_raw="140 kg",
+                result_display="140 kg",
+                state="completed",
+                is_circuit=False,
+                selected_exercises=[],
+                linked=False,
+                attachment_count=0,
+            )
+        ]
+
+    def test_write_run_records_db_write_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = TrueCoachPaths(cache_dir=Path(tmpdir) / "cache")
+            with patch("coach_truecoach.ai.category_assignment._load_categories", return_value=self.categories), patch(
+                "coach_truecoach.ai.category_assignment.select_category_assignment_inputs",
+                return_value=self.items,
+            ), patch(
+                "coach_truecoach.ai.category_assignment._write_category_assignment_assertion",
+                return_value="inserted",
+            ), patch.dict(
+                os.environ,
+                {"AI_PROVIDER": "ollama", "MODEL": "llama3.1", "AI_URL": "http://localhost:11434"},
+                clear=False,
+            ):
+                summary = run_category_assignment_write(
+                    session=object(),  # type: ignore[arg-type]
+                    paths=paths,
+                    assigner=_StubAssigner(
+                        {
+                            7: json.dumps(
+                                {
+                                    "workout_item_id": 7,
+                                    "category_id": 1,
+                                    "category_name": "Strength",
+                                    "confidence": 0.91,
+                                    "rationale": "Primary demand is heavy strength work.",
+                                }
+                            )
+                        }
+                    ),
+                )
+
+            self.assertEqual(summary.inserted_count, 1)
+            self.assertEqual(summary.unchanged_count, 0)
+            manifest = json.loads(summary.manifest_path.read_text(encoding="utf-8"))
+            records = [
+                json.loads(line)
+                for line in summary.proposals_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(manifest["mode"], "write")
+            self.assertEqual(manifest["inserted_count"], 1)
+            self.assertEqual(records[0]["db_write_status"], "inserted")
+
+
 class CliSmokeTests(unittest.TestCase):
     def test_cli_dry_run_prints_summary(self) -> None:
         summary = CategoryAssignmentRunSummary(
@@ -299,6 +470,40 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("Selected workout items: 2", output)
         self.assertIn("Successful proposals: 1", output)
         self.assertIn("Failed proposals: 1", output)
+
+    def test_cli_write_prints_summary(self) -> None:
+        summary = CategoryAssignmentRunSummary(
+            output_dir=Path("/tmp/output"),
+            total_selected=2,
+            success_count=2,
+            failure_count=0,
+            inserted_count=2,
+            unchanged_count=0,
+            manifest_path=Path("/tmp/output/manifest.json"),
+            proposals_path=Path("/tmp/output/proposals.jsonl"),
+        )
+
+        @contextlib.contextmanager
+        def _fake_session_scope(engine: object):
+            yield object()
+
+        stdout = io.StringIO()
+        with patch("coach_truecoach.cli.create_engine", return_value=object()), patch(
+            "coach_truecoach.cli.session_scope",
+            side_effect=_fake_session_scope,
+        ), patch(
+            "coach_truecoach.cli.run_category_assignment_write",
+            return_value=summary,
+        ), patch(
+            "sys.argv",
+            ["coach", "ai-category-assignment-write", "--limit", "2"],
+        ), patch("sys.stdout", stdout):
+            main()
+
+        output = stdout.getvalue()
+        self.assertIn("Selected workout items: 2", output)
+        self.assertIn("Inserted assertions: 2", output)
+        self.assertIn("Unchanged assertions: 0", output)
 
 
 if __name__ == "__main__":

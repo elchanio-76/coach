@@ -355,7 +355,8 @@ Current implementation status:
 - `Seed Category Import`: implemented
 - `Seed Exercise Import`: implemented through canonical exercise upserts, `exercise_source_aliases`, and `workout_item_exercises`
 - `AI Category Dry Run`: implemented as `coach ai-category-assignment-dry-run`
-- AI proposal DB writes and review flows below: not implemented yet
+- `AI Category Write`: implemented as `coach ai-category-assignment-write`
+- Review flows below: not implemented yet
 
 ### Raw Workout Import
 
@@ -402,7 +403,7 @@ Steps:
 
 ## AI Augmentation Operations
 
-Not implemented yet. These sections describe the next phase after the DB foundation.
+Partially implemented. Category assignment writes are now wired; the remaining sections describe the next phase after the DB foundation.
 
 ### Exercise Mapping Agent
 
@@ -424,9 +425,10 @@ For each workout item with no approved current category:
 Current status:
 
 - Dry-run classification is implemented for one primary category per workout item.
-- Current command: `.venv/bin/coach ai-category-assignment-dry-run --limit 10`
-- Current output: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/category_assignment/`
-- Current implementation does not write `workout_item_categories` rows yet.
+- Write command: `.venv/bin/coach ai-category-assignment-write --limit 10`
+- Run artifacts: `manifest.json` and `proposals.jsonl` under `data/cache/truecoach/ai/category_assignment/`
+- Successful write runs insert `workout_item_categories` rows with `source = 'ai'`, `review_status = 'pending'`, and `is_current = true`.
+- Reruns skip identical current pending assertions and supersede older current pending AI assertions for the same workout item when the proposal changes.
 
 ### Metrics Agent
 

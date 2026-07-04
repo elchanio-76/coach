@@ -4,6 +4,7 @@ from .category_assignment import (
     CategoryAssignmentProposal,
     CategoryAssignmentRunSummary,
     run_category_assignment_dry_run,
+    run_category_assignment_write,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "CategoryAssignmentProposal",
     "CategoryAssignmentRunSummary",
     "run_category_assignment_dry_run",
+    "run_category_assignment_write",
 ]
