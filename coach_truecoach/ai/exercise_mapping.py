@@ -119,6 +119,9 @@ class StrandsExerciseMapper:
         return str(agent(prompt)).strip()
 
 
+MAX_RETRIES = 1
+
+
 def run_exercise_mapping_dry_run(
     session: Session,
     *,
@@ -234,28 +237,48 @@ def _run_exercise_mapping(
                 "url": settings.url,
                 "prompt_context": prompt_context,
                 "parse_status": "error",
+                "attempt_count": 0,
+                "attempts": [],
             }
-            try:
-                raw_response = exercise_mapper.map_exercises(item)
-                record["raw_response"] = raw_response
-                proposal = _parse_model_response(
-                    raw_response,
-                    item,
-                    expected_workout_item_id=item.workout_item_id,
-                )
-                record["proposal"] = _proposal_to_record(proposal)
-                record["parse_status"] = "ok"
-                if persist:
-                    write_summary = _write_exercise_mapping_assertions(session, proposal, item, settings)
-                    record["db_write_status"] = write_summary["status"]
-                    record["db_write_summary"] = write_summary
-                    inserted_count += int(write_summary["inserted_count"])
-                    unchanged_count += int(write_summary["unchanged_count"])
-                    created_exercise_count += int(write_summary["created_exercise_count"])
-                    alias_inserted_count += int(write_summary["alias_inserted_count"])
-                success_count += 1
-            except Exception as exc:
-                record["error"] = str(exc)
+            last_error: Exception | None = None
+            for attempt_number in range(1, MAX_RETRIES + 2):
+                attempt_record: dict[str, Any] = {"attempt": attempt_number}
+                try:
+                    raw_response = exercise_mapper.map_exercises(item)
+                    attempt_record["raw_response"] = raw_response
+                    proposal = _parse_model_response(
+                        raw_response,
+                        item,
+                        expected_workout_item_id=item.workout_item_id,
+                    )
+                    attempt_record["proposal"] = _proposal_to_record(proposal)
+                    if persist:
+                        write_summary = _write_exercise_mapping_assertions(session, proposal, item, settings)
+                        attempt_record["db_write_status"] = write_summary["status"]
+                        attempt_record["db_write_summary"] = write_summary
+                        inserted_count += int(write_summary["inserted_count"])
+                        unchanged_count += int(write_summary["unchanged_count"])
+                        created_exercise_count += int(write_summary["created_exercise_count"])
+                        alias_inserted_count += int(write_summary["alias_inserted_count"])
+                        record["db_write_status"] = write_summary["status"]
+                        record["db_write_summary"] = write_summary
+                    record["raw_response"] = raw_response
+                    record["proposal"] = _proposal_to_record(proposal)
+                    record["parse_status"] = "ok"
+                    record["attempt_count"] = attempt_number
+                    record["attempts"].append(attempt_record)
+                    success_count += 1
+                    last_error = None
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    attempt_record["error"] = str(exc)
+                    record["attempts"].append(attempt_record)
+                    if attempt_number > MAX_RETRIES:
+                        break
+            if last_error is not None:
+                record["attempt_count"] = len(record["attempts"])
+                record["error"] = str(last_error)
                 failure_count += 1
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 

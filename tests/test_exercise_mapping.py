@@ -341,6 +341,20 @@ class _StubMapper:
         return self.responses[item.workout_item_id]
 
 
+@dataclass
+class _RetryStubMapper:
+    responses: dict[int, list[str]]
+
+    def __post_init__(self) -> None:
+        self.offsets = {key: 0 for key in self.responses}
+
+    def map_exercises(self, item: ExerciseMappingInput) -> str:
+        values = self.responses[item.workout_item_id]
+        offset = self.offsets[item.workout_item_id]
+        self.offsets[item.workout_item_id] = min(offset + 1, len(values) - 1)
+        return values[offset]
+
+
 class RunArtifactTests(unittest.TestCase):
     def test_dry_run_writes_manifest_and_proposals(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -383,7 +397,56 @@ class RunArtifactTests(unittest.TestCase):
             self.assertEqual(summary.total_selected, 1)
             self.assertEqual(manifest["selection_mode"], "unmapped_by_ai")
             self.assertEqual(records[0]["parse_status"], "ok")
+            self.assertEqual(records[0]["attempt_count"], 1)
             self.assertEqual(summary.output_dir.parent, paths.exercise_mapping_active_dir)
+
+    def test_dry_run_retries_once_after_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = TrueCoachPaths(cache_dir=Path(tmpdir) / "cache")
+            mapper = _RetryStubMapper(
+                {
+                    7: [
+                        "not json",
+                        json.dumps(
+                            {
+                                "workout_item_id": 7,
+                                "exercises": [
+                                    {
+                                        "position": 1,
+                                        "source_phrase": "push-up",
+                                        "canonical_exercise_id": 1,
+                                        "canonical_name": "Push-up",
+                                        "match_type": "exact",
+                                        "confidence": 0.91,
+                                        "rationale": "Direct name match.",
+                                    }
+                                ],
+                            }
+                        ),
+                    ]
+                }
+            )
+            with patch("coach_truecoach.ai.exercise_mapping.load_active_exercise_abbreviations", return_value={}), patch(
+                "coach_truecoach.ai.exercise_mapping.select_exercise_mapping_inputs",
+                return_value=[_exercise_input()],
+            ), patch.dict(
+                os.environ,
+                {"AI_PROVIDER": "ollama", "MODEL": "llama3.1", "AI_URL": "http://localhost:11434"},
+                clear=False,
+            ):
+                summary = run_exercise_mapping_dry_run(
+                    session=object(),  # type: ignore[arg-type]
+                    paths=paths,
+                    mapper=mapper,
+                )
+
+            records = [json.loads(line) for line in summary.proposals_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(summary.success_count, 1)
+            self.assertEqual(summary.failure_count, 0)
+            self.assertEqual(records[0]["attempt_count"], 2)
+            self.assertEqual(len(records[0]["attempts"]), 2)
+            self.assertIn("error", records[0]["attempts"][0])
+            self.assertEqual(records[0]["parse_status"], "ok")
 
     def test_write_run_records_db_write_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
