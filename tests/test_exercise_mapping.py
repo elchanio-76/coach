@@ -180,9 +180,43 @@ class ResponseValidationTests(unittest.TestCase):
 
         self.assertEqual([exercise.position for exercise in proposal.exercises], [1, 2])
 
+    def test_parse_model_response_rejects_non_exercise_placeholder_entry(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not a valid exercise name|non-exercise placeholder entry"):
+            _parse_model_response(
+                json.dumps(
+                    {
+                        "workout_item_id": 7,
+                        "exercises": [
+                            {
+                                "position": 1,
+                                "source_phrase": "unbroken every round",
+                                "canonical_exercise_id": None,
+                                "canonical_name": "None",
+                                "match_type": "none",
+                                "confidence": 0.5,
+                                "rationale": "Describing repetition scheme, not a distinct atomic exercise.",
+                            }
+                        ],
+                    }
+                ),
+                self.item,
+                expected_workout_item_id=7,
+            )
+
     def test_parse_model_response_rejects_malformed_payload(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "valid JSON"):
             _parse_model_response("not json", self.item, expected_workout_item_id=7)
+
+
+class CanonicalNameNormalizationTests(unittest.TestCase):
+    def test_normalize_canonical_exercise_name_title_cases_lowercase_output(self) -> None:
+        self.assertEqual(_normalize_canonical_exercise_name("weighted chin-up"), "Weighted Chin-Up")
+
+    def test_normalize_canonical_exercise_name_preserves_existing_internal_caps(self) -> None:
+        self.assertEqual(
+            _normalize_canonical_exercise_name("Single Arm DB Push Press"),
+            "Single Arm DB Push Press",
+        )
 
 
 class SeedAbbreviationTests(unittest.TestCase):
