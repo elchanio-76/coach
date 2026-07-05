@@ -21,6 +21,7 @@ from coach_truecoach.ai.exercise_mapping import (
     ExerciseMappingRunSummary,
     ExerciseOption,
     ProposedExercise,
+    _normalize_canonical_exercise_name,
     _parse_model_response,
     _write_exercise_mapping_assertions,
     archive_exercise_mapping_run,
@@ -237,7 +238,7 @@ class WriteAssertionTests(unittest.TestCase):
                     position=1,
                     source_phrase="wall walks",
                     canonical_exercise_id=None,
-                    canonical_name="Wall walk",
+                    canonical_name="wall walk",
                     match_type="new",
                     confidence=Decimal("0.810"),
                     rationale="A distinct exercise not in the candidate list.",
@@ -249,7 +250,9 @@ class WriteAssertionTests(unittest.TestCase):
             summary = _write_exercise_mapping_assertions(session, proposal, self.item, self.settings)
 
         self.assertEqual(summary["created_exercise_count"], 1)
-        self.assertTrue(any(isinstance(row, Exercise) and row.review_status == "pending" for row in session.added))
+        created_rows = [row for row in session.added if isinstance(row, Exercise) and row.review_status == "pending"]
+        self.assertEqual(len(created_rows), 1)
+        self.assertEqual(created_rows[0].name, "Wall Walk")
 
     def test_write_assertions_do_not_duplicate_existing_truecoach_mapping(self) -> None:
         item = _exercise_input(

@@ -681,7 +681,7 @@ def _resolve_or_create_exercise(session: Session, proposed: ProposedExercise) ->
     if existing is not None:
         return existing.id, False
     exercise = Exercise(
-        name=proposed.canonical_name,
+        name=_normalize_canonical_exercise_name(proposed.canonical_name),
         created_by_source="ai",
         review_status="pending",
     )
@@ -940,6 +940,24 @@ def _token_overlap(left: str, right: str) -> int:
 
 def _normalize_text(value: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", value.casefold()).split())
+
+
+def _normalize_canonical_exercise_name(value: str) -> str:
+    text = " ".join(value.split())
+    if not text:
+        return text
+    if any(character.isupper() for character in text[1:]):
+        return text[0].upper() + text[1:]
+    tokens = []
+    for token in text.split(" "):
+        if not token:
+            continue
+        if "-" in token:
+            parts = [part[:1].upper() + part[1:] if part else part for part in token.split("-")]
+            tokens.append("-".join(parts))
+        else:
+            tokens.append(token[:1].upper() + token[1:])
+    return " ".join(tokens)
 
 
 def _load_agent_class() -> Any:
