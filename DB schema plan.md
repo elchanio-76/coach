@@ -425,8 +425,12 @@ Current status:
 - Default selection skips items that already have current pending or approved AI exercise assertions, but TrueCoach mappings do not block processing.
 - Existing TrueCoach/user/system exercise mappings are treated as satisfied links and are not duplicated as AI rows.
 - Reruns skip identical current pending AI assertions and supersede older current pending AI assertions when the proposal changes.
+- The workflow retries once after an exercise-mapping error. If the second attempt also fails, the item remains in the run artifacts for manual review.
 - Model positions are stored one-based; zero-based model responses are normalized to JSON list order.
+- New canonical exercise names are normalized before insert so lowercase-only model output does not go into the database verbatim, while existing internal capitalization is preserved.
+- Parser validation rejects malformed placeholder rows before DB writes, including `canonical_name` values such as `None`/`null` and non-exercise entries returned with `match_type = 'none'`.
 - For Ollama runs, configure the selected model or runner with a context length of at least `16000` tokens. The default `4096` can be too small for long workout item prompts plus model output.
+- Observed local tradeoff so far: `gemma4:12b` is the most accurate but slowest option; `gemma4:e4b` has been the best speed/accuracy balance for this workflow; smaller local models are more likely to return malformed JSON, wrong data types, or hallucinated canonical exercise IDs.
 
 ### Category Agent
 

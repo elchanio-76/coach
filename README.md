@@ -145,6 +145,12 @@ AI_URL="http://localhost:11434"
 
 For Ollama, configure the selected model or runner with a context length of at least `16000` tokens. Some workout items include long descriptions and candidate context, and the default `4096` context can produce token-limit failures.
 
+Observed local model tradeoffs:
+
+- `gemma4:12b` has produced the most accurate results so far, but it is slow. It is a thinking model and spends noticeably more time deliberating before returning structured output.
+- `gemma4:e4b` has been the best speed/accuracy tradeoff for this workflow so far. It is non-thinking, faster, and still generally reliable for exercise classification.
+- Smaller local models are more likely to return malformed JSON, wrong data types, or hallucinated canonical exercise IDs.
+
 Seed abbreviations before running the mapper:
 
 ```bash
@@ -165,7 +171,9 @@ Write pending AI exercise assertions to Postgres:
 
 By default, selection skips workout items that already have a current pending or approved AI exercise assertion. Existing TrueCoach exercise mappings are included as context but do not block processing, so the mapper can add missing movements from free-form workout text.
 
-The mapper can create pending canonical `exercises` rows for newly identified movements and pending `exercise_name_aliases` rows for synonym judgments. Run artifacts are written under `data/cache/truecoach/ai/exercise_mapping/active/`.
+The mapper can create pending canonical `exercises` rows for newly identified movements and pending `exercise_name_aliases` rows for synonym judgments. New canonical exercise names are normalized before insert so lowercase-only model output does not go into the database verbatim.
+
+The workflow retries once after an exercise-mapping error. This is intended to recover from one-off malformed responses such as wrong JSON shape, wrong data types, placeholder/non-exercise rows, or hallucinated IDs. If the second attempt fails, the item is left in the run artifacts for manual review. The parser rejects placeholder names such as `None`/`null` and non-exercise rows like pacing or quality notes before they reach the database. Run artifacts are written under `data/cache/truecoach/ai/exercise_mapping/active/`.
 
 Archive a reviewed batch when you are done with it:
 

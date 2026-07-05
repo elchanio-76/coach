@@ -156,3 +156,7 @@ Current AI exercise mapping status:
 - Abbreviations are seeded from `exercise_abbreviations.json`.
 - Run artifacts are written under `data/cache/truecoach/ai/exercise_mapping/active/`.
 - Ollama exercise-mapping runs should use a context length of at least `16000` tokens for long workout-item prompts.
+- The workflow retries once after an exercise-mapping error; a second failure is left in the run artifacts for manual review.
+- Parser validation rejects placeholder/non-exercise rows such as `canonical_name = None` or pacing/instruction lines before they reach the database.
+- New canonical exercise names are normalized before insert so lowercase-only model output does not go into the database verbatim while existing internal capitalization is preserved.
+- Observed local model tradeoff so far: `gemma4:12b` is the most accurate but slowest option, `gemma4:e4b` is the best speed/accuracy balance for this workflow, and smaller local models are more prone to malformed JSON, wrong data types, or hallucinated canonical IDs.
