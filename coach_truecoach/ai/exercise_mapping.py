@@ -530,9 +530,10 @@ def _parse_model_response(
         source_phrase = str(raw_exercise.get("source_phrase", "")).strip()
         if not source_phrase:
             raise RuntimeError("Proposed exercise source_phrase was empty.")
-        canonical_name = str(raw_exercise.get("canonical_name", "")).strip()
-        if not canonical_name:
-            raise RuntimeError("Proposed exercise canonical_name was empty.")
+        canonical_name = _parse_canonical_name(raw_exercise.get("canonical_name"))
+        match_type = str(raw_exercise.get("match_type", "")).strip() or "new"
+        if match_type == "none":
+            raise RuntimeError("Model response included a non-exercise placeholder entry.")
         raw_id = raw_exercise.get("canonical_exercise_id")
         canonical_exercise_id = None if raw_id in (None, "") else int(raw_id)
         if canonical_exercise_id is not None:
@@ -553,7 +554,7 @@ def _parse_model_response(
                 source_phrase=source_phrase,
                 canonical_exercise_id=canonical_exercise_id,
                 canonical_name=canonical_name,
-                match_type=str(raw_exercise.get("match_type", "")).strip() or "new",
+                match_type=match_type,
                 confidence=_parse_confidence(raw_exercise.get("confidence")),
                 rationale=_parse_required_text(raw_exercise.get("rationale"), "rationale"),
             )
@@ -801,10 +802,13 @@ def _build_prompt(context: dict[str, Any]) -> str:
         "Rules:\n"
         "- Use candidate canonical_exercise_id values when the candidate is fundamentally the same movement.\n"
         "- Use null canonical_exercise_id only for a genuinely new atomic movement.\n"
+        "- Omit non-exercise text entirely, such as pacing notes, rep schemes, quality cues, or instructions like "
+        "'unbroken every round'. Do not emit placeholder rows for them.\n"
         "- One workout item can contain multiple exercises; preserve their order from the text.\n"
         "- Treat all mapped exercises as primary movements for v1.\n"
         "- Abbreviations must only use the provided abbreviation map; do not invent unsupported expansions.\n"
         "- Do not map equipment-only abbreviations such as dumbbell or barbell as standalone exercises.\n"
+        "- Never use placeholder names such as null, none, n/a, or similar values for canonical_name.\n"
         "- confidence must be a number from 0 to 1.\n"
         "- rationale must be concise and grounded in the item text.\n"
         "- Do not output markdown.\n\n"
@@ -887,6 +891,17 @@ def _parse_required_text(value: Any, key: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise RuntimeError(f"Model response {key} was empty.")
+    return text
+
+
+def _parse_canonical_name(value: Any) -> str:
+    if value is None:
+        raise RuntimeError("Proposed exercise canonical_name was empty.")
+    text = str(value).strip()
+    if not text:
+        raise RuntimeError("Proposed exercise canonical_name was empty.")
+    if _normalize_text(text) in {"none", "null", "n a", "na"}:
+        raise RuntimeError(f"Proposed exercise canonical_name was not a valid exercise name: {text!r}")
     return text
 
 
